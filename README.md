@@ -1,4 +1,5 @@
 # MoTrPAC clinical sample batching 
+Contact: Nicole Gay (nicolerg@stanford.edu) 
 
 Use [`randomization.R`](randomization.R) to make well-balanced batches of MoTrPAC human samples in terms of clinical site, intervention group, age, and sex. 
 
@@ -90,4 +91,4 @@ optional arguments:
 ```
 
 ### Help
-For questions about the documentation or any issues with the code, please email Nicole at nicolerg@stanford.edu.   
+For questions about the documentation or any issues with the code, please submit an issue or contact Nicole at nicolerg@stanford.edu. 
