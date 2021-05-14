@@ -12,40 +12,38 @@ library(argparse)
 
 ### if you want to run this code in RStudio instead of from the command line, 
 ### comment out this chunk and uncomment/define the variables listed underneath
-# parser = ArgumentParser()
-# parser$add_argument("-s", "--shipment-manifest-excel", required=T, type="character", nargs="+",
-#                     help="Path(s) to shipment manifest Excel files, e.g. Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx")
-# parser$add_argument("-a", "--api-metadata-csv", required=T, type="character", nargs="+",
-#                     help="Path(s) to sample metadata from web API, e.g. ADU830-10060.csv PED830-10062.csv")
-# parser$add_argument("-n", "--max-n-per-batch", type="integer", required=T,
-#                     help="Max number of samples per batch")
-# parser$add_argument("-t", "--strict-size", action="store_true", default=F,
-#                     help="Force all batches to be as close to --max-n-per-batch as possible. Most applicable for small batches (e.g. < 20)")
-# parser$add_argument("-b", "--vars-to-balance", type="character", default=c('codedsiteid','randomgroupcode','sex_psca','older_than_40'),
-#                     help="Force batches to include samples from at least two groups of each of these variables. Must be defined in --api-metadata-csv")
-# parser$add_argument("-o", "--outdir", type="character", default=".",
-#                     help="Path to output directory")
-# parser$add_argument("-v", "--verbose", action="store_true", default=TRUE,
-#                     help="Print progress messages [default]")
-# args = parser$parse_args()
-# shipments = args$shipment_manifest_excel
-# apis = args$api_metadata_csv
-# max_n_per_batch = args$max_n_per_batch
-# strict_size = args$strict_size 
-# balance_vars = args$vars_to_balance
-# outdir = args$outdir
-# verbose = args$verbose
-# 
-# 
-###
-shipments = "~/Desktop/broad_batches/ShipmentContents_BroadCarr_012521.xlsx"
-apis = "~/Desktop/broad_batches/ADU822-10074.csv"
-max_n_per_batch = 15
-strict_size = T
-balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
-outdir = "~/Desktop/broad_batches"
-verbose = F
-### 
+parser = ArgumentParser()
+parser$add_argument("-s", "--shipment-manifest-excel", required=T, type="character", nargs="+",
+                    help="Path(s) to shipment manifest Excel files, e.g. Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx")
+parser$add_argument("-a", "--api-metadata-csv", required=T, type="character", nargs="+",
+                    help="Path(s) to sample metadata from web API, e.g. ADU830-10060.csv PED830-10062.csv")
+parser$add_argument("-n", "--max-n-per-batch", type="integer", required=T,
+                    help="Max number of samples per batch")
+parser$add_argument("-t", "--strict-size", action="store_true", default=F,
+                    help="Force all batches to be as close to --max-n-per-batch as possible. Most applicable for small batches (e.g. < 20)")
+parser$add_argument("-v", "--vars-to-balance", type="character", default=c('codedsiteid','randomgroupcode','sex_psca','older_than_40'),
+                    help="Force batches to include samples from at least two groups of each of these variables. Must be defined in --api-metadata-csv")
+parser$add_argument("-o", "--outdir", type="character", default=".",
+                    help="Path to output directory")
+parser$add_argument("-q", "--quietly", action="store_true", default=FALSE,
+                    help="Silence progress messages")
+args = parser$parse_args()
+shipments = args$shipment_manifest_excel
+apis = args$api_metadata_csv
+max_n_per_batch = args$max_n_per_batch
+strict_size = args$strict_size
+balance_vars = args$vars_to_balance
+outdir = args$outdir
+verbose = !args$quietly
+####
+# shipments = "~/Desktop/broad_batches/ShipmentContents_BroadCarr_012521.xlsx"
+# apis = "~/Desktop/broad_batches/ADU822-10074.csv"
+# max_n_per_batch = 15
+# strict_size = T
+# balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
+# outdir = "~/Desktop/broad_batches"
+# verbose = F
+#### 
 
 # FUNCTIONS #########################################################################################################
 

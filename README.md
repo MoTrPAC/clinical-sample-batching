@@ -3,35 +3,30 @@ Contact: Nicole Gay (nicolerg@stanford.edu)
 
 Use [`randomization.R`](randomization.R) to make well-balanced batches of MoTrPAC human samples in terms of clinical site, intervention group, age, and sex. 
 
-### Inputs  
+## Required inputs  
 - Shipment manifest Excel file(s) from the Biorepository, e.g. `Stanford_ADU830-10060_120720.xlsx`  
 - Corresponding CSV file(s) from the Biospecimen Metadata Download API on [motrpac.org](https://www.motrpac.org/), e.g. `ADU830-10060.csv`   
+- Maximum number of samples per batch  
 
 > IMPORTANT: Include manifests for both adult *and* pediatric samples to randomize studies together.  
 
 > IMPORTANT: If the manifests include multiple aliquots of the same samples for different assays, you **MUST** add an `assay` column to *either* of these input files to distiguish the different sets of aliquots. For example, if muscle samples are being processed for both ATAC-seq and RNA-seq at Stanford, add an `assay` column with the values `rnaseq` and `atacseq`. The values themselves do not matter as long as they separate the sets of aliquots.  
 
-### Outputs  
+## Optional arguments  
+- **The `--strict-size` `-t` flag should be used for batches with small numbers of samples.**  
+- `--vars-to-balance` `-v` defines the list of variables for which more than one group should be present in each batch (default: `c('codedsiteid','randomgroupcode','sex_psca','older_than_40')`). 
+- `--outdir` `-o` can be used to specify an output directory other than the current working directory.  
+- `--quietly` `-q` can be used to silence progress messages.  
+
+## Outputs  
 - Two files per assay & tissue combination:  
   - Blinded batch assignments in the format `precovid_[SAMPLE_TYPE]-samples_BLINDED-batch-assignments.csv` (see example [here](examples/precovid_4-samples_BLINDED-batch-assignments.csv))  
   - Unblinded batching metadata in the format `precovid_[SAMPLE_TYPE]-samples_UNBLINDED-batch-characteristics.csv`  
 - Summary of batch characteristics (`stdout`) (see example [here](examples/out.log))  
 
-### Methodology  
-1. Merge all shipment manifests and metadata files  
-2. Define sample groups for batching (sample type code, and assay if applicable)  
-3. For each sample group:  
-  i. Predefine the number and max size of batches  
-  ii. Identify the number of samples associated with each participant ID (pid) in the sample group, "N"  
-  iii. For each pid, define the "group" as the combination of clinical site (`codedsiteid`) and intervention (`randomgroupcode`)  
-  iv. Order pids by "N" then "group", largest to smallest    
-  v. Iterate through the ordered rows of pids, starting with individuals with the largest number of corresponding samples, and interatively assign pids to consecutive batches, ensuring that the max batch size is not exceeded  
-  vi. Print batch composition to `stdout`  
-  vii. Output shipment positions and batch assignments to file  
+## Usage 
 
-### Usage 
-
-#### Required R packages
+### Required R packages
 ```txt
 data.table
 readxl
@@ -39,7 +34,7 @@ testit
 argparse
 ```
 
-#### Example commands 
+### Example commands 
 Here is an example of how to run the script from the command line, assuming the shipment manifest Excel files and API metadata CSV files are in the same directory as this script. Include manifests and metadata for *all* pre-COVID clinical samples, i.e. both adult and pediatric shipments.  
 ```bash
 Rscript randomization.R \
@@ -64,17 +59,18 @@ Rscript randomization.R \
 ```
 See an example of this log file [here](examples/out.log). 
 
-Alternatively, run the script interactively in RStudio by commenting out lines 13-26 and manually defining arguments on lines 28-31.  
+Alternatively, run the script interactively in RStudio by commenting out lines 15-37 and manually defining arguments on lines 39-45.  
 
-### Argument documentation
-Run `Rscript randomization.R -h` to see a help message similar to this one:  
+## Argument documentation
+Run `Rscript randomization.R -h` to see this help message:  
 ```bash
-usage: Rscript randomization.R [-h]
-                               [-s SHIPMENT_MANIFEST_EXCEL [SHIPMENT_MANIFEST_EXCEL ...]]
-                               [-a API_METADATA_CSV [API_METADATA_CSV ...]]
-                               [-o OUTDIR] 
-                               [-n MAX_N_PER_BATCH]
-required arguments: 
+usage: randomization.R [-h] -s SHIPMENT_MANIFEST_EXCEL
+                       [SHIPMENT_MANIFEST_EXCEL ...] -a API_METADATA_CSV
+                       [API_METADATA_CSV ...] -n MAX_N_PER_BATCH [-t]
+                       [-v VARS_TO_BALANCE] [-o OUTDIR] [-q]
+
+optional arguments:
+  -h, --help            show this help message and exit
   -s SHIPMENT_MANIFEST_EXCEL [SHIPMENT_MANIFEST_EXCEL ...], --shipment-manifest-excel SHIPMENT_MANIFEST_EXCEL [SHIPMENT_MANIFEST_EXCEL ...]
                         Path(s) to shipment manifest Excel files, e.g.
                         Stanford_ADU830-10060_120720.xlsx
@@ -82,13 +78,19 @@ required arguments:
   -a API_METADATA_CSV [API_METADATA_CSV ...], --api-metadata-csv API_METADATA_CSV [API_METADATA_CSV ...]
                         Path(s) to sample metadata from web API, e.g.
                         ADU830-10060.csv PED830-10062.csv
-optional arguments:
-  -h, --help            show help message and exit
-  -o OUTDIR, --outdir OUTDIR
-                        Path to output directory. Default: "."
   -n MAX_N_PER_BATCH, --max-n-per-batch MAX_N_PER_BATCH
-                        Max number of samples per batch. Default: 94 
+                        Max number of samples per batch
+  -t, --strict-size     Force all batches to be as close to --max-n-per-batch
+                        as possible. Most applicable for small batches (e.g. <
+                        20)
+  -v VARS_TO_BALANCE, --vars-to-balance VARS_TO_BALANCE
+                        Force batches to include samples from at least two
+                        groups of each of these variables. Must be defined in
+                        --api-metadata-csv
+  -o OUTDIR, --outdir OUTDIR
+                        Path to output directory
+  -q, --quietly         Silence progress messages
 ```
 
-### Help
+## Help
 For questions about the documentation or any issues with the code, please submit an issue or contact Nicole at nicolerg@stanford.edu. 
