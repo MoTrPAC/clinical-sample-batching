@@ -4,9 +4,9 @@ Contact: Nicole Gay (nicolerg@stanford.edu)
 Use [`randomization.R`](randomization.R) to make well-balanced batches of MoTrPAC human samples in terms of clinical site, intervention group, age, and sex. 
 
 ## Required inputs  
-- Shipment manifest Excel file(s) from the Biorepository, e.g. `Stanford_ADU830-10060_120720.xlsx`  
-- Corresponding CSV file(s) from the Biospecimen Metadata Download API on [motrpac.org](https://www.motrpac.org/), e.g. `ADU830-10060.csv`   
-- Maximum number of samples per batch  
+- Shipment manifest Excel file(s) from the Biorepository, e.g. `Stanford_ADU830-10060_120720.xlsx` (`--shipment-manifest-excel` `-ship`)   
+- Corresponding CSV file(s) from the Biospecimen Metadata Download API on [motrpac.org](https://www.motrpac.org/), e.g. `ADU830-10060.csv` (`--api-metadata-csv` `-api`)   
+- Maximum number of samples per batch (`--max-n-per-batch` `-max`)  
 
 > IMPORTANT: Include manifests for both adult *and* pediatric samples to randomize studies together.  
 
@@ -40,21 +40,24 @@ Here is an example of how to run the script from the command line, assuming the 
 Rscript randomization.R \
     --shipment-manifest-excel Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx \
     --api-metadata-csv ADU830-10060.csv PED830-10062.csv \
+    --max-n-per-batch 94 \
     --outdir ../batches 
 ```  
 Equivalently:  
 
 ```bash
 Rscript randomization.R \
-    -s Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx \
-    -a ADU830-10060.csv PED830-10062.csv \
+    -ship Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx \
+    -api ADU830-10060.csv PED830-10062.csv \
+    -max 94 \
     -o ../batches 
 ```  
 A summary of batching statistics is printed to the console. To save all output to a log file for later reference, add ` > out.log 2>&1` to the end of the command, e.g.: 
 ```bash
 Rscript randomization.R \
-    -s Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx \
-    -a ADU830-10060.csv PED830-10062.csv \
+    -ship Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx \
+    -api ADU830-10060.csv PED830-10062.csv \
+    -max 94 \
     -o ../batches > ../batches/out.log 2>&1
 ```
 See an example of this log file [here](examples/out.log). 
@@ -64,23 +67,23 @@ Alternatively, run the script interactively in RStudio by commenting out lines 1
 ## Argument documentation
 Run `Rscript randomization.R -h` to see this help message:  
 ```bash
-usage: randomization.R [-h] -s SHIPMENT_MANIFEST_EXCEL
-                       [SHIPMENT_MANIFEST_EXCEL ...] -a API_METADATA_CSV
-                       [API_METADATA_CSV ...] -n MAX_N_PER_BATCH [-t]
+usage: randomization.R [-h] -ship SHIPMENT_MANIFEST_EXCEL
+                       [SHIPMENT_MANIFEST_EXCEL ...] -api API_METADATA_CSV
+                       [API_METADATA_CSV ...] -max MAX_N_PER_BATCH [-s]
                        [-v VARS_TO_BALANCE] [-o OUTDIR] [-q]
 
 optional arguments:
   -h, --help            show this help message and exit
-  -s SHIPMENT_MANIFEST_EXCEL [SHIPMENT_MANIFEST_EXCEL ...], --shipment-manifest-excel SHIPMENT_MANIFEST_EXCEL [SHIPMENT_MANIFEST_EXCEL ...]
+  -ship SHIPMENT_MANIFEST_EXCEL [SHIPMENT_MANIFEST_EXCEL ...], --shipment-manifest-excel SHIPMENT_MANIFEST_EXCEL [SHIPMENT_MANIFEST_EXCEL ...]
                         Path(s) to shipment manifest Excel files, e.g.
                         Stanford_ADU830-10060_120720.xlsx
                         Stanford_PED830-10062_120720.xlsx
-  -a API_METADATA_CSV [API_METADATA_CSV ...], --api-metadata-csv API_METADATA_CSV [API_METADATA_CSV ...]
+  -api API_METADATA_CSV [API_METADATA_CSV ...], --api-metadata-csv API_METADATA_CSV [API_METADATA_CSV ...]
                         Path(s) to sample metadata from web API, e.g.
                         ADU830-10060.csv PED830-10062.csv
-  -n MAX_N_PER_BATCH, --max-n-per-batch MAX_N_PER_BATCH
+  -max MAX_N_PER_BATCH, --max-n-per-batch MAX_N_PER_BATCH
                         Max number of samples per batch
-  -t, --strict-size     Force all batches to be as close to --max-n-per-batch
+  -s, --strict-size     Force all batches to be as close to --max-n-per-batch
                         as possible. Most applicable for small batches (e.g. <
                         20)
   -v VARS_TO_BALANCE, --vars-to-balance VARS_TO_BALANCE
