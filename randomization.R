@@ -51,7 +51,7 @@ verbose = !args$quietly
 # max_n_per_batch = 94
 # strict_size = F
 # balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
-# outdir = "~/Desktop/broad_batches"
+# outdir = "~/Desktop/stanford_batches"
 # verbose = T
 #### 
 
