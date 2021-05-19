@@ -1,0 +1,178 @@
+
+These columns have 0 variance in the merged metadata: protocol
+
+'assay' is not in the column names of the merged biospecimen and shipment metadata. Batching will assume that all samples from a given tissue are for a single assay.
+
+
+--- BATCHING '4' SAMPLES ---
+
+Identified the 1th combination of samples that fits the ideal batch sizes after 5458 iterations. Checking balance...
+Success!
+Sample totals:
+    batch N_samples
+ 1:     3        94
+ 2:    10        94
+ 3:    15        93
+ 4:     4        94
+ 5:     5        93
+ 6:     1        94
+ 7:    11        93
+ 8:     6        94
+ 9:    12        94
+10:    13        94
+11:     8        93
+12:     7        94
+13:     9        94
+14:    14        94
+15:     2        94
+
+N subj. per sex by batch:
+        batch
+sex_psca  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+       1 12 10 10 12 11 13 12  9 10  7  8  9 12  9 11
+       2  4  4  6  6  4  4  5  8  6  9  6  5  4  7  6
+
+N subj. per site by batch:
+           batch
+codedsiteid 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+         21 1 0 0 1 1 3 1 0 0  1  0  0  0  0  0
+         22 3 4 4 2 4 2 3 6 2  1  1  3  3  4  3
+         23 2 4 2 2 2 2 3 0 1  3  1  0  3  4  2
+         24 0 0 1 2 1 1 2 2 4  4  2  3  1  3  3
+         25 2 1 1 1 0 0 2 3 2  0  0  2  0  1  2
+         26 4 4 3 4 3 3 1 3 6  3  2  3  6  2  2
+         27 0 1 0 1 0 0 0 1 1  1  3  0  0  0  0
+         28 3 0 1 1 3 1 3 0 0  2  2  1  2  1  3
+         29 1 0 1 1 1 2 0 1 0  0  2  0  0  0  0
+         30 0 0 2 2 0 2 0 1 0  1  1  0  1  0  1
+         31 0 0 1 1 0 1 2 0 0  0  0  2  0  1  1
+
+N subj. per intervention by batch:
+               batch
+randomgroupcode 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+     ADUControl 4 1 2 3 1 3 2 5 0  1  3  4  2  4  2
+     ADUEndur   5 9 5 3 4 5 3 3 4  4  4  4  5  5  2
+     ADUResist  1 4 3 8 6 5 7 7 7  6  2  2  5  5  5
+     ATHEndur   3 0 2 1 1 3 1 0 1  1  2  1  0  1  2
+     ATHResist  0 0 3 2 0 0 1 2 4  2  1  2  2  0  3
+     PEDEndur   3 0 1 1 3 1 3 0 0  2  2  1  2  1  3
+
+N subj. per age group by batch (>40 yrs):
+             batch
+older_than_40  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+        FALSE  9  5  6 11 10 13  9  6  9 12  8  7 10  8 10
+        TRUE   7  9 10  7  5  4  8 11  7  4  6  7  6  8  7
+
+
+--- BATCHING '5' SAMPLES ---
+
+Identified the 1th combination of samples that fits the ideal batch sizes after 7 iterations. Checking balance...
+Success!
+Sample totals:
+    batch N_samples
+ 1:     6        92
+ 2:     2        93
+ 3:    12        93
+ 4:    11        94
+ 5:     8        94
+ 6:    14        94
+ 7:     4        91
+ 8:     7        92
+ 9:     5        94
+10:     3        92
+11:    13        93
+12:     1        91
+13:     9        94
+14:    10        93
+15:    15        91
+
+N subj. per sex by batch:
+        batch
+sex_psca  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+       1  9 10  9 12 10 11  7  9 12 10 13 11 11 12  9
+       2  7  6  7  3  6  5  8  5  5  8  3  5  5  5  6
+
+N subj. per site by batch:
+           batch
+codedsiteid 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+         21 0 1 0 3 0 0 0 1 0  1  0  1  0  1  0
+         22 3 6 2 2 1 1 1 2 5  4  5  3  3  2  5
+         23 1 0 2 2 2 3 2 1 2  4  2  1  2  3  4
+         24 2 2 4 1 2 1 1 2 2  0  3  3  2  2  2
+         25 1 1 1 0 1 1 0 0 1  4  1  3  2  0  1
+         26 2 2 4 4 5 7 3 4 3  2  2  2  4  4  1
+         27 1 0 0 1 0 2 1 0 1  1  0  0  0  1  0
+         28 1 1 0 2 3 0 6 1 0  1  3  2  0  2  1
+         29 1 1 0 0 0 0 0 3 2  0  0  0  1  0  1
+         30 1 0 1 0 2 1 1 0 0  1  0  1  2  1  0
+         31 3 2 2 0 0 0 0 0 1  0  0  0  0  1  0
+
+N subj. per intervention by batch:
+               batch
+randomgroupcode 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+     ADUControl 2 2 1 2 2 2 3 2 2  2  5  3  4  3  2
+     ADUEndur   2 5 5 5 5 5 4 5 6  5  2  4  4  4  4
+     ADUResist  8 3 7 2 3 6 1 2 5  8  3  6  7  8  4
+     ATHEndur   1 2 1 2 1 3 0 2 1  2  2  0  1  0  1
+     ATHResist  2 3 2 2 2 0 1 2 3  0  1  1  0  0  3
+     PEDEndur   1 1 0 2 3 0 6 1 0  1  3  2  0  2  1
+
+N subj. per age group by batch (>40 yrs):
+             batch
+older_than_40  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15
+        FALSE  8  8  9  9  8  7 10  5  9 10  9 11  9 12  9
+        TRUE   8  8  7  6  8  9  5  9  8  8  7  5  7  5  6
+
+
+--- BATCHING '6' SAMPLES ---
+
+Identified the 1th combination of samples that fits the ideal batch sizes after 1 iterations. Checking balance...
+Success!
+Sample totals:
+   batch N_samples
+1:     7        85
+2:     3        94
+3:     2        94
+4:     4        93
+5:     6        92
+6:     1        92
+7:     5        94
+
+N subj. per sex by batch:
+        batch
+sex_psca  1  2  3  4  5  6  7
+       1 23 18 18 25 25 14 18
+       2  8 12 10  7  7 16 13
+
+N subj. per site by batch:
+           batch
+codedsiteid  1  2  3  4  5  6  7
+         21  1  0  1  1  2  0  2
+         22  6  9  5  6  8  4  7
+         23  2  6  2  4  4  7  6
+         24  6  3  7  3  2  5  3
+         25  5  1  1  2  2  4  1
+         26  7  6  7 10  7  5  7
+         27  1  1  3  1  1  1  0
+         29  0  1  0  3  3  0  2
+         30  2  1  0  1  3  2  2
+         31  1  2  2  1  0  2  1
+
+N subj. per intervention by batch:
+               batch
+randomgroupcode  1  2  3  4  5  6  7
+     ADUControl  3  3  5  5  4  9  8
+     ADUEndur   10  7  6 11 14  8  8
+     ADUResist  15 12  8 12 11  6  9
+     ATHEndur    0  4  4  0  2  5  4
+     ATHResist   3  4  5  4  1  2  2
+
+N subj. per age group by batch (>40 yrs):
+             batch
+older_than_40  1  2  3  4  5  6  7
+        FALSE 17 15 14 15 14 16 17
+        TRUE  14 15 14 17 18 14 14
+
+Done!
+
+Please manually check the plots in ../batches/plots to ensure that batches are satisfactorily balanced, i.e. numbers are reasonably distributed across each ROW/variable level. Rerun the script if you are not satisfied with the balance.

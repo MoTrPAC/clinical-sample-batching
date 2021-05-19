@@ -7,6 +7,7 @@ library(data.table)
 library(readxl)
 library(testit)
 library(argparse)
+library(ggplot2)
 
 # ARGUMENTS #########################################################################################################
 
@@ -27,6 +28,8 @@ parser$add_argument("-o", "--outdir", type="character", default=".",
                     help="Path to output directory")
 parser$add_argument("-q", "--quietly", action="store_true", default=FALSE,
                     help="Silence progress messages")
+parser$add_argument("-inner", "--max-inner-loop-iter", type="integer", default=1e6,
+                    help="Max number of failed attempts to fit all samples in batches before increasing the number of batches")
 args = parser$parse_args()
 shipments = args$shipment_manifest_excel
 apis = args$api_metadata_csv
@@ -35,7 +38,10 @@ strict_size = args$strict_size
 balance_vars = args$vars_to_balance
 outdir = args$outdir
 verbose = !args$quietly
+max_inner_loop_iter = args$max_inner_loop_iter
+#
 ####
+#
 # # Broad proteomics example
 # shipments = "~/Desktop/broad_batches/ShipmentContents_BroadCarr_012521.xlsx"
 # apis = "~/Desktop/broad_batches/ADU822-10074.csv"
@@ -44,6 +50,7 @@ verbose = !args$quietly
 # balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
 # outdir = "~/Desktop/broad_batches"
 # verbose = T
+# max_inner_loop_iter = 1e6
 #
 # # Stanford GET example
 # shipments = c("/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/Stanford_ADU830-10060_120720.xlsx","/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/Stanford_PED830-10062_120720.xlsx")
@@ -53,7 +60,15 @@ verbose = !args$quietly
 # balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
 # outdir = "~/Desktop/stanford_batches"
 # verbose = T
+# max_inner_loop_iter = 1e6
+#
 #### 
+
+if(strict_size){
+  max_outer_loop_iter = 1000
+}else{
+  max_outer_loop_iter = 50 
+}
 
 # FUNCTIONS #########################################################################################################
 
@@ -330,24 +345,22 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch,
       inner_loop = 1
     }else{
       inner_loop = inner_loop + 1
-      if(inner_loop>1e6 & !feasible_batches){
+      if(inner_loop>max_inner_loop_iter & !feasible_batches){
         new_batch_sizes = id_feasible_batch_sizes(curr_batch_pid, b, max_n_per_batch)
-        if(verbose){
-          message(sprintf("With %s total samples and maximum %s samples per batch, the ideal number of samples per batch are as follows:\n%s\nHowever, after %s iterations, no combination of samples was found to fit these batch sizes. Trying again with the following batch sizes:\n%s",
-                          sum(curr_batch_pid[,N]),
-                          max_n_per_batch,
-                          paste0(batch_sizes, collapse=', '),
-                          inner_loop,
-                          paste0(batch_sizes, collapse=', ')))
-        }
+        warning(sprintf("With %s total samples and maximum %s samples per batch, the ideal number of samples per batch are as follows:\n%s\nHowever, after %s iterations, no combination of samples was found to fit these batch sizes. Trying again with the following batch sizes:\n%s",
+                        sum(curr_batch_pid[,N]),
+                        max_n_per_batch,
+                        paste0(batch_sizes, collapse=', '),
+                        inner_loop,
+                        paste0(batch_sizes, collapse=', ')))
         batch_sizes = new_batch_sizes
         feasible_batches = T
       }
-      if(outer_loop > 1000){
+      if(outer_loop > max_outer_loop_iter){
         if(verbose){
           writeLines(paste0(batch_sizes, collapse=', '))
         }
-        stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nTry removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
+        stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nHope for better luck and rerun the script - OR - try removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
                      sum(curr_batch_pid[,N]),
                      max_n_per_batch,
                      outer_loop-1,
@@ -435,25 +448,56 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
       inner_loop = 1
     }else{
       inner_loop = inner_loop + 1
-      if(inner_loop>1e6){
-        if(verbose){
-          message("Can't find a combination of samples that fits in this many batches. Increasing the number of batches by 1.")
-        }
+      if(inner_loop > max_inner_loop_iter){
+        warning("Can't find a combination of samples that fits in this many batches. Increasing the number of batches by 1.")
         n_batches = n_batches + 1
       }
-      if(outer_loop > 200){
-        warning("I didn't expect you to get here either...")
-        stop(sprintf("With %s total samples and up to %s samples per batch, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nTry removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
-                     sum(curr_batch_pid[,N]),
-                     max_n_per_batch,
-                     outer_loop-1,
-                     paste0(balance_vars, collapse=', ')))
+      if(outer_loop > max_outer_loop_iter){
+        if(max_n_per_batch < 20){
+          stop(sprintf("It looks like you want small batch sizes (N = %s). Please try re-running the script with the --strict-size flag for a batching method more suitable for small batch sizes.",
+                       max_n_per_batch))
+        }else{
+          warning("I didn't expect you to get here...")
+          stop(sprintf("With %s total samples and up to %s samples per batch, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nTry removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
+                       sum(curr_batch_pid[,N]),
+                       max_n_per_batch,
+                       outer_loop-1,
+                       paste0(balance_vars, collapse=', ')))
+        }
       }
     }
   }
   return(batch_assignments)
 }
 
+
+batch_heatmap = function(batches, variable, batching_group, outdir){
+  batch_table = data.table(table(batches[,batch],batches[,get(variable)]))
+  colnames(batch_table) = c('batch',variable,'N')
+  batch_names = as.numeric(unique(batch_table[,batch]))
+  batch_names = as.character(batch_names[order(batch_names, decreasing=F)])
+  g = ggplot(batch_table, aes(x=batch, y=get(variable), fill=N)) +
+    geom_tile() +
+    theme_classic() +
+    labs(x='batch',y=variable,title=sprintf("N subj. per %s by batch\n('%s' samples)", variable, batching_group)) +
+    geom_text(aes(label=N), size=3) +
+    scale_fill_gradient(low="white", high="red", guide='none') +
+    theme(axis.text = element_text(colour="black"),
+          panel.border = element_rect(colour = "black", fill=NA, size=1),
+          axis.line = element_blank(),
+          plot.title = element_text(size=10)) +
+    scale_x_discrete(limits = batch_names) 
+  
+  #print(g)
+  
+  # save to pdf
+  height = 1 + length(unique(batches[,get(variable)]))*0.3
+  width = 0.5 + length(unique(batches[,batch]))*0.3 + 0.1*max(sapply(unique(batches[,get(variable)]), 
+                                                                     function(x) length(unlist(unname(strsplit(as.character(x), ''))))))
+  pdf(sprintf("%s/plots/%s_%s_distribution-across-batches.pdf", outdir, batching_group, variable), width, height)
+  print(g)
+  dev.off()
+}
 
 # CHECK FORMATS #########################################################################################################
 
@@ -513,6 +557,10 @@ all_meta = all_meta[!(is.na(viallabel) | is.na(box))]
 
 # SETUP #########################################################################################################
 
+# make outdirs
+system(sprintf("mkdir -p %s/plots", outdir))
+system(sprintf("mkdir -p %s/files", outdir))
+
 # "study" is redundant with "randomgroupcode"
 # there can be multiple bid per pid. pid id human participant id. use pid as identifier
 # visitcode = baseline versus post. ignore this because all samples from an individual will be together
@@ -534,7 +582,7 @@ for(c in colnames(all_meta)){
     remove = c(remove, c)
   }
 }
-message(sprintf("These columns have 0 variance in the merged metadata: %s\n",
+message(sprintf("\nThese columns have 0 variance in the merged metadata: %s",
                 paste0(remove, collapse=', ')))
 # all_meta[,(remove) := NULL]
 
@@ -548,7 +596,7 @@ message(sprintf("These columns have 0 variance in the merged metadata: %s\n",
 # all samples of a pid will stay together 
 # randomization will be independently performed in each tissue
 if(!"assay" %in% colnames(all_meta)){
-  message("'assay' is not in the column names of the merged API and shipment metadata. Batching will assume that all samples from a given tissue are for a single assay.\n")
+  message("\n'assay' is not in the column names of the merged biospecimen and shipment metadata. Batching will assume that all samples from a given tissue are for a single assay.")
   all_meta[,batching_group := sampletypecode]
 }else{
   all_meta[,batching_group := paste0(assay, '_', sampletypecode)]
@@ -558,9 +606,10 @@ if(!"assay" %in% colnames(all_meta)){
 
 for (b in unique(all_meta[,batching_group])){
 
-  cat("_____________________________________________________________________________________________\n")
-  cat(sprintf("--- BATCHING '%s' SAMPLES ---\n\n", b))
-  
+  if(verbose){
+    message(sprintf("\n\n--- BATCHING '%s' SAMPLES ---\n", b))
+  }
+
   curr_batch = unique(all_meta[batching_group == b])
   curr_batch_pid = unique(curr_batch[,.(codedsiteid, pid, randomgroupcode, sex_psca, calculatedage, older_than_40)])
   
@@ -581,23 +630,55 @@ for (b in unique(all_meta[,batching_group])){
     #batches = make_batches_not_strict(nplates, curr_batch_pid, b, balance_vars)
     batches = make_random_batches_not_strict(curr_batch_pid, b, max_n_per_batch, balance_vars = balance_vars, verbose = verbose)
   }
+
+  if(verbose){
+    cat('Sample totals:\n')
+    print(batches[,list(N_samples = sum(N)), by=batch])
+    cat('\nN subj. per sex by batch:\n')
+    print(table(batches[,sex_psca], batches[,batch], dnn=c("sex_psca", "batch")))
+    cat('\nN subj. per site by batch:\n')
+    print(table(batches[,codedsiteid], batches[,batch], dnn=c("codedsiteid", "batch")))
+    cat('\nN subj. per intervention by batch:\n')
+    print(table(batches[,randomgroupcode], batches[,batch], dnn=c("randomgroupcode", "batch")))
+    cat('\nN subj. per age group by batch (>40 yrs):\n')
+    print(table(batches[,older_than_40], batches[,batch], dnn=c("older_than_40", "batch")))
+  }
   
-  cat('Sample totals:\n')
-  print(batches[,list(N_samples = sum(N)), by=batch])
-  cat('\nN subj. per sex by batch:\n')
-  print(table(batches[,batch], batches[,sex_psca]))
-  cat('\nN subj. per site by batch:\n')
-  print(table(batches[,batch], batches[,codedsiteid]))
-  cat('\nN subj. per intervention by batch:\n')
-  print(table(batches[,batch], batches[,randomgroupcode]))
-  cat('\nN subj. per age group by batch (>40 yrs):\n')
-  print(table(batches[,batch], batches[,older_than_40]))
+  ## make heatmaps
+  # sample totals 
+  sample_totals = batches[,list(N_samples = sum(N)), by=batch]
+  batch_names = as.numeric(unique(sample_totals[,batch]))
+  batch_names = as.character(batch_names[order(batch_names, decreasing=F)])
+  sample_totals[,y := 'N']
+  g = ggplot(sample_totals, aes(x=batch, y=y, fill=N_samples)) +
+    geom_tile() +
+    theme_classic() +
+    labs(x='batch',title=sprintf("N samples per batch ('%s' samples)", b)) +
+    geom_text(aes(label=N_samples), size=3) +
+    scale_fill_gradient(low="white", high="red", guide='none') +
+    theme(axis.text = element_text(colour="black"),
+          panel.border = element_rect(colour = "black", fill=NA, size=1),
+          axis.line = element_blank(),
+          plot.title = element_text(size=10),
+          axis.text.y = element_blank(),
+          axis.ticks.y = element_blank(),
+          axis.title.y = element_blank()) +
+    scale_x_discrete(limits = batch_names) 
+  #print(g)
+  height = 1
+  width = 0.5 + length(unique(batches[,batch]))*0.3
+  pdf(sprintf("%s/plots/%s_n-samples-per-batch.pdf", outdir, b), width, height)
+  print(g)
+  dev.off()
   
-  cat('\n\n')
+  # balance vars
+  for(var in c('sex_psca', 'codedsiteid', 'randomgroupcode', 'older_than_40')){
+    batch_heatmap(batches, var, b, outdir)
+  }
   
   # write two versions to file 
   # batch characteristics 
-  write.table(batches, file=sprintf("%s/precovid_%s-samples_UNBLINDED-batch-characteristics.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
+  write.table(batches, file=sprintf("%s/files/precovid_%s-samples_UNBLINDED-batch-characteristics.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
   
   # current and new positions 
   curr_batch[,pid := as.character(pid)]
@@ -621,7 +702,9 @@ for (b in unique(all_meta[,batching_group])){
             paste(unique(positions[,shipping_position], collapse=',')))
   }
 
-  write.table(positions, file=sprintf("%s/precovid_%s-samples_BLINDED-batch-assignments.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
+  write.table(positions, file=sprintf("%s/files/precovid_%s-samples_BLINDED-batch-assignments.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
 }
+message("\nDone!")
+message(sprintf("\nPlease manually check the plots in %s/plots to ensure that batches are satisfactorily balanced, i.e. numbers are reasonably distributed across each ROW/variable level. Rerun the script if you are not satisfied with the balance.", gsub("/$","",outdir)))
 
 warnings()

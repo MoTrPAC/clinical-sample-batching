@@ -13,16 +13,22 @@ Use [`randomization.R`](randomization.R) to make well-balanced batches of MoTrPA
 > IMPORTANT: If the manifests include multiple aliquots of the same samples for different assays, you **MUST** add an `assay` column to *either* of these input files to distiguish the different sets of aliquots. For example, if muscle samples are being processed for both ATAC-seq and RNA-seq at Stanford, add an `assay` column with the values `rnaseq` and `atacseq`. The values themselves do not matter as long as they separate the sets of aliquots.  
 
 ## Optional arguments  
-- **The `--strict-size` `-t` flag should be used for batches with small numbers of samples.**  
-- `--vars-to-balance` `-v` defines the list of variables for which more than one group should be present in each batch (default: `c('codedsiteid','randomgroupcode','sex_psca','older_than_40')`). 
-- `--outdir` `-o` can be used to specify an output directory other than the current working directory.  
-- `--quietly` `-q` can be used to silence progress messages.  
+- **The `--strict-size` `-s` flag should be used for batches with small numbers of samples**  
+- `--vars-to-balance` `-v` defines the list of variables for which more than one group should be present in each batch (default: `c('codedsiteid','randomgroupcode','sex_psca','older_than_40')`)   
+- `--outdir` `-o` can be used to specify an output directory other than the current working directory  
+- `--quietly` `-q` can be used to silence progress messages  
 
 ## Outputs  
-- Two files per assay & tissue combination:  
-  - Blinded batch assignments in the format `precovid_[SAMPLE_TYPE]-samples_BLINDED-batch-assignments.csv` (see example [here](examples/precovid_4-samples_BLINDED-batch-assignments.csv))  
-  - Unblinded batching metadata in the format `precovid_[SAMPLE_TYPE]-samples_UNBLINDED-batch-characteristics.csv`  
-- Summary of batch characteristics (`stdout`) (see example [here](examples/out.log))  
+### Files  
+Two files are written for each assay & tissue combination:  
+- Blinded batch assignments in the format `files/precovid_[SAMPLE_TYPE]-samples_BLINDED-batch-assignments.csv` (see [example](examples/precovid_4-samples_BLINDED-batch-assignments.csv))  
+- Unblinded batching metadata in the format `files/precovid_[SAMPLE_TYPE]-samples_UNBLINDED-batch-characteristics.csv`  
+ 
+### Plots 
+Five plots are saved for each assay & tissue combination:  
+- Number of samples per batch: `plots/[SAMPLE_TYPE]_n-samples-per-batch.pdf` (see [example](examples/plots/6_n-samples-per-batch.pdf))  
+- Heatmap of the number of individuals per group per batch: `plots/[SAMPLE_TYPE]_[BALANCE_VARIABLE]_distribution-across-batches`, where `[BALANCE_VARIABLE]` is one of `c('codedsiteid','randomgroupcode','sex_psca','older_than_40')` (see [examples](examples/plots)). **These plots should be visually examined to confirm that batches are adequately balanced, i.e. that numbers are reasonably distributed across each ROW.**    
+
 
 ## Usage 
 
@@ -32,6 +38,7 @@ data.table
 readxl
 testit
 argparse
+ggplot2
 ```
 
 ### Example commands 
@@ -60,7 +67,7 @@ Rscript randomization.R \
     -max 94 \
     -o ../batches > ../batches/out.log 2>&1
 ```
-See an example of this log file [here](examples/out.log). 
+See examples of this log file for [large batches](examples/large-batches.out.log) and [small batches (`--strict-size`)](examples/small-batches.out.log).   
 
 Remember to add the `--strict-size` or `-s` flag if the maximum number of samples per batch is small, e.g.:  
 ```bash
@@ -72,7 +79,7 @@ Rscript randomization.R \
     -o ~/Desktop/broad_batches 
 ```
 
-Alternatively, run the script interactively in RStudio by commenting out lines 15-37 and manually defining arguments below (see examples on lines 39-55).  
+Alternatively, run the script interactively in RStudio by commenting out lines 16-41 and manually defining arguments below (see examples on lines 44-64).  
 
 ## Argument documentation
 Run `Rscript randomization.R -h` to see this help message:  
@@ -81,6 +88,7 @@ usage: randomization.R [-h] -ship SHIPMENT_MANIFEST_EXCEL
                        [SHIPMENT_MANIFEST_EXCEL ...] -api API_METADATA_CSV
                        [API_METADATA_CSV ...] -max MAX_N_PER_BATCH [-s]
                        [-v VARS_TO_BALANCE] [-o OUTDIR] [-q]
+                       [-inner MAX_INNER_LOOP_ITER]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -103,6 +111,9 @@ optional arguments:
   -o OUTDIR, --outdir OUTDIR
                         Path to output directory
   -q, --quietly         Silence progress messages
+  -inner MAX_INNER_LOOP_ITER, --max-inner-loop-iter MAX_INNER_LOOP_ITER
+                        Max number of failed attempts to fit all samples in
+                        batches before increasing the number of batches
 ```
 
 ## Help
