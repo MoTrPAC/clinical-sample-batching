@@ -458,7 +458,7 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
                        max_n_per_batch))
         }else{
           warning("I didn't expect you to get here...")
-          stop(sprintf("With %s total samples and up to %s samples per batch, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nTry removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
+          stop(sprintf("With %s total samples and up to %s samples per batch, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nHope for better luck and rerun the script - OR - try removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
                        sum(curr_batch_pid[,N]),
                        max_n_per_batch,
                        outer_loop-1,
