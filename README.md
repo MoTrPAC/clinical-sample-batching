@@ -62,6 +62,16 @@ Rscript randomization.R \
 ```
 See an example of this log file [here](examples/out.log). 
 
+Remember to add the `--strict-size` or `-s` flag if the maximum number of samples per batch is small, e.g.:  
+```bash
+Rscript randomization.R \
+    -ship ShipmentContents_BroadCarr_012521.xlsx \
+    -api ADU822-10074.csv \
+    -max 15 \
+    -s \
+    -o ~/Desktop/broad_batches 
+```
+
 Alternatively, run the script interactively in RStudio by commenting out lines 15-37 and manually defining arguments below (see examples on lines 39-55).  
 
 ## Argument documentation
