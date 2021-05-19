@@ -62,7 +62,7 @@ Rscript randomization.R \
 ```
 See an example of this log file [here](examples/out.log). 
 
-Alternatively, run the script interactively in RStudio by commenting out lines 15-37 and manually defining arguments on lines 39-45.  
+Alternatively, run the script interactively in RStudio by commenting out lines 15-37 and manually defining arguments below (see examples on lines 39-55).  
 
 ## Argument documentation
 Run `Rscript randomization.R -h` to see this help message:  
