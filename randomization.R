@@ -36,18 +36,26 @@ balance_vars = args$vars_to_balance
 outdir = args$outdir
 verbose = !args$quietly
 ####
+# # Broad proteomics example
 # shipments = "~/Desktop/broad_batches/ShipmentContents_BroadCarr_012521.xlsx"
 # apis = "~/Desktop/broad_batches/ADU822-10074.csv"
 # max_n_per_batch = 15
 # strict_size = T
 # balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
 # outdir = "~/Desktop/broad_batches"
-# verbose = F
+# verbose = T
+#
+# # Stanford GET example
+# shipments = c("/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/Stanford_ADU830-10060_120720.xlsx","/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/Stanford_PED830-10062_120720.xlsx")
+# apis = c("/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/ADU830-10060.csv","/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/PED830-10062.csv")
+# max_n_per_batch = 94
+# strict_size = F
+# balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
+# outdir = "~/Desktop/broad_batches"
+# verbose = T
 #### 
 
 # FUNCTIONS #########################################################################################################
-
-max_outer_loop_iter = 1000
 
 # read in shipment manifests
 # error reading in Excel file because "Box" is a mix of numeric and string. fix that
@@ -95,81 +103,81 @@ check_batch_balance = function(curr_batch_pid,
 }
 
 
-# make batches of roughly the same numbers of samples
-# prioritize site and randgroupcode for randomization; check that age and sex are balanced by chance
-make_batches_not_strict = function(nplates, curr_batch_pid, b, balance_vars){
-  
-  # while samples do not fit...
-    # order samples by N and then group
-    # for each row of curr_batch_pid
-      # see if it fits in ANY batch
-        # if yes, place and keep going 
-        # if not, add plate; break
-  
-  curr_batch_pid[,group := paste0(codedsiteid, randomgroupcode)]
-  curr_batch_pid = curr_batch_pid[order(N, group, decreasing = T)] 
-  
-  overflow = T
-  while(overflow){
-    
-    # assign group, checking total size 
-    batch_sizes = rep(0, nplates) 
-    names(batch_sizes) = 1:nplates
-    batch_iter = 1
-    curr_batch_pid[,batch := NA_integer_]
-    
-    for (i in 1:nrow(curr_batch_pid)){
-      
-      # see if it fits in any batch
-      if(!any(batch_sizes + curr_batch_pid[i, N] <= max_n_per_batch)){
-        overflow = T
-        if(verbose){
-          message(sprintf("With this randomization, '%s' samples don't fit into %s batches. Trying with %s.",b, nplates,nplates+1))
-        }
-        nplates = nplates + 1
-        overflow = T
-        break
-      }
-      overflow = F
-      
-      # it fits in at least one batch. iterate over batches to put into first batch that it fits 
-      which_fits = unname(which(batch_sizes + curr_batch_pid[i, N] <= max_n_per_batch))
-      
-      if(any(which_fits >= batch_iter)){
-        # get first one greater than or equal to batch_iter
-        which_fits = which_fits[which_fits >= batch_iter]
-        which_fits = min(which_fits)
-      }else{ 
-        # if that doesn't work, start again at 1 
-        which_fits[which_fits < batch_iter]
-        which_fits = min(which_fits)
-      }
-      # add to batch
-      curr_batch_pid[i, batch := which_fits] # assign batch
-      batch_sizes[[which_fits]] = batch_sizes[[which_fits]] + curr_batch_pid[i, N] # increase size
-      # increment batch
-      batch_iter = batch_iter + 1
-      if(batch_iter == nplates+1){
-        batch_iter = 1
-      }
-    }
-  }
-  # at this point, all batches should be assigned
-  batches = curr_batch_pid
-  
-  # check batch balance 
-  check_batches = check_batch_balance(batches, balance_vars)
-  if(!check_batches$success){
-    # something, probably sex or age, was unbalanced
-    # iteratively make batches until they are balanced
-    warning("I didn't expect you to get here...")
-    stop(sprintf("It looks like you want small batch sizes (N = %s). Please try re-running the script with the --strict-size flag for a batching method more suitable for small batch sizes.",
-                 max_n_per_batch))
-    batches = make_random_batches_not_strict(curr_batch_pid, b, max_n_per_batch, balance_vars)
-  }
-  
-  return(batches)
-}
+# # make batches of roughly the same numbers of samples
+# # prioritize site and randgroupcode for randomization; check that age and sex are balanced by chance
+# make_batches_not_strict = function(nplates, curr_batch_pid, b, balance_vars){
+#   
+#   # while samples do not fit...
+#     # order samples by N and then group
+#     # for each row of curr_batch_pid
+#       # see if it fits in ANY batch
+#         # if yes, place and keep going 
+#         # if not, add plate; break
+#   
+#   curr_batch_pid[,group := paste0(codedsiteid, randomgroupcode)]
+#   curr_batch_pid = curr_batch_pid[order(N, group, decreasing = T)] 
+#   
+#   overflow = T
+#   while(overflow){
+#     
+#     # assign group, checking total size 
+#     batch_sizes = rep(0, nplates) 
+#     names(batch_sizes) = 1:nplates
+#     batch_iter = 1
+#     curr_batch_pid[,batch := NA_integer_]
+#     
+#     for (i in 1:nrow(curr_batch_pid)){
+#       
+#       # see if it fits in any batch
+#       if(!any(batch_sizes + curr_batch_pid[i, N] <= max_n_per_batch)){
+#         overflow = T
+#         if(verbose){
+#           message(sprintf("With this randomization, '%s' samples don't fit into %s batches. Trying with %s.",b, nplates,nplates+1))
+#         }
+#         nplates = nplates + 1
+#         overflow = T
+#         break
+#       }
+#       overflow = F
+#       
+#       # it fits in at least one batch. iterate over batches to put into first batch that it fits 
+#       which_fits = unname(which(batch_sizes + curr_batch_pid[i, N] <= max_n_per_batch))
+#       
+#       if(any(which_fits >= batch_iter)){
+#         # get first one greater than or equal to batch_iter
+#         which_fits = which_fits[which_fits >= batch_iter]
+#         which_fits = min(which_fits)
+#       }else{ 
+#         # if that doesn't work, start again at 1 
+#         which_fits[which_fits < batch_iter]
+#         which_fits = min(which_fits)
+#       }
+#       # add to batch
+#       curr_batch_pid[i, batch := which_fits] # assign batch
+#       batch_sizes[[which_fits]] = batch_sizes[[which_fits]] + curr_batch_pid[i, N] # increase size
+#       # increment batch
+#       batch_iter = batch_iter + 1
+#       if(batch_iter == nplates+1){
+#         batch_iter = 1
+#       }
+#     }
+#   }
+#   # at this point, all batches should be assigned
+#   batches = curr_batch_pid
+#   
+#   # check batch balance 
+#   check_batches = check_batch_balance(batches, balance_vars)
+#   if(!check_batches$success){
+#     # something, probably sex or age, was unbalanced
+#     # iteratively make batches until they are balanced
+#     warning("I didn't expect you to get here...")
+#     stop(sprintf("It looks like you want small batch sizes (N = %s). Please try re-running the script with the --strict-size flag for a batching method more suitable for small batch sizes.",
+#                  max_n_per_batch))
+#     batches = make_random_batches_not_strict(curr_batch_pid, b, max_n_per_batch, balance_vars)
+#   }
+#   
+#   return(batches)
+# }
 
 
 id_optimal_batch_sizes = function(curr_batch_pid, max_n_per_batch){
@@ -289,7 +297,6 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch,
     while(!all(remaining_room_per_batch==0)){ # while there are samples left to place...
       # extract the first set 
       set_to_place = n_samples_per_pid_reordered[1] 
-      n_samples_per_pid_reordered = n_samples_per_pid_reordered[-1] 
       # put this in the first batch that it fits
       batch_to_place = as.numeric(names(remaining_room_per_batch)[remaining_room_per_batch>=set_to_place][1])
       if(is.na(batch_to_place)){
@@ -297,6 +304,7 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch,
       }
       new_sets[[batch_to_place]] = c(new_sets[[batch_to_place]], set_to_place)
       remaining_room_per_batch[[batch_to_place]] = remaining_room_per_batch[[batch_to_place]] - unlist(set_to_place)
+      n_samples_per_pid_reordered = n_samples_per_pid_reordered[-1] # only remove the sample after it's been placed
     }
     # this worked? 
     if(all(remaining_room_per_batch==0)){
@@ -335,11 +343,11 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch,
         batch_sizes = new_batch_sizes
         feasible_batches = T
       }
-      if(outer_loop > max_outer_loop_iter){
+      if(outer_loop > 1000){
         if(verbose){
           writeLines(paste0(batch_sizes, collapse=', '))
         }
-        stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nRerun this script again and hope for better luck - OR - try removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
+        stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nTry removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
                      sum(curr_batch_pid[,N]),
                      max_n_per_batch,
                      outer_loop-1,
@@ -379,7 +387,6 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
     while(length(n_samples_per_pid_reordered)>0){ # while there are samples left to place...
       # extract the first set 
       set_to_place = n_samples_per_pid_reordered[1] 
-      n_samples_per_pid_reordered = n_samples_per_pid_reordered[-1] 
       # put this in the first batch that it fits
       which_fits = unname(which(remaining_room_per_batch>=set_to_place))
       if(length(which_fits)==0){
@@ -396,6 +403,7 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
       }
       new_sets[[which_fits]] = c(new_sets[[which_fits]], set_to_place)
       remaining_room_per_batch[[which_fits]] = remaining_room_per_batch[[which_fits]] - unlist(set_to_place)
+      n_samples_per_pid_reordered = n_samples_per_pid_reordered[-1]  # only remove the sample after it's been placed
       batch_iter = batch_iter + 1
       if(batch_iter > n_batches){
         batch_iter = 1
@@ -416,6 +424,7 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
         names(pid_to_batch) = pids
         pid_to_batches = c(pid_to_batches, pid_to_batch)
       }
+      assert(length(pid_to_batches) == nrow(curr_batch_pid))
       curr_batch_pid[,batch := pid_to_batches[pid]]
       
       # check if batches are balanced 
@@ -568,8 +577,9 @@ for (b in unique(all_meta[,batching_group])){
                                   balance_vars = balance_vars,
                                   verbose = verbose)
   }else{
-    nplates = ceiling(nrow(curr_batch)/max_n_per_batch) 
-    batches = make_batches_not_strict(nplates, curr_batch_pid, b, balance_vars) ## THIS IS GETTING STUCK
+    #nplates = ceiling(nrow(curr_batch)/max_n_per_batch) 
+    #batches = make_batches_not_strict(nplates, curr_batch_pid, b, balance_vars)
+    batches = make_random_batches_not_strict(curr_batch_pid, b, max_n_per_batch, balance_vars = balance_vars, verbose = verbose)
   }
   
   cat('Sample totals:\n')
