@@ -47,6 +47,8 @@ verbose = !args$quietly
 
 # FUNCTIONS #########################################################################################################
 
+max_outer_loop_iter = 1000
+
 # read in shipment manifests
 # error reading in Excel file because "Box" is a mix of numeric and string. fix that
 read_shipment = function(path){
@@ -333,11 +335,11 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch,
         batch_sizes = new_batch_sizes
         feasible_batches = T
       }
-      if(outer_loop > 200){
+      if(outer_loop > max_outer_loop_iter){
         if(verbose){
           writeLines(paste0(batch_sizes, collapse=', '))
         }
-        stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nTry removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
+        stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nRerun this script again and hope for better luck - OR - try removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
                      sum(curr_batch_pid[,N]),
                      max_n_per_batch,
                      outer_loop-1,
