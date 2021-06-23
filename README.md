@@ -14,9 +14,17 @@ Use [`randomization.R`](randomization.R) to make well-balanced batches of MoTrPA
 
 ## Optional arguments  
 - **The `--strict-size` `-s` flag should be used for batches with small numbers of samples**  
+- **The `--max-full-batches` `-f` flag should be used to force as many batches as possible to have *exactly* `--max-n-per-batch` samples**  
 - `--vars-to-balance` `-v` defines the list of variables for which more than one group should be present in each batch (default: `c('codedsiteid','randomgroupcode','sex_psca','older_than_40')`)   
+- `--tissue-subset [TISSUE_CODE]` restricts balancing to a single tissue specified by `[TISSUE_CODE]`, which must match a value in either the 'Sample Type' column of one of `--shipment-manifest-excel` or the 'SampleTypeCode' column of one of `--api-metadata-csv`  
 - `--outdir` `-o` can be used to specify an output directory other than the current working directory  
-- `--quietly` `-q` can be used to silence progress messages  
+- `--quietly` `-q` can be used to silence progress messages   
+
+Expert level: 
+- If you want the script to check more random combinations of samples before compromising the ideal batch sizes, increase `--max-inner-loop-iter` (default: 1e6)  
+- If you want the script to check more random combinations of samples before decreasing the stringency of the batch balance checks, increase `--max-outer-loop-iter` (default: 1000 for `--strict-size` and 5000 otherwise)  
+- `--balance-strictness` `-b` can be used to specify the initial strictness of the balance checks, with 10 being the strictest and 1 being the most lenient. By default, `--balance-strictness` is 1 when `--strict-size` is used and 10 otherwise  
+
 
 ## Outputs  
 ### Files  
@@ -25,10 +33,7 @@ Two files are written for each assay & tissue combination:
 - Unblinded batching metadata in the format `files/precovid_[SAMPLE_TYPE]-samples_UNBLINDED-batch-characteristics.csv`  
  
 ### Plots 
-Five plots are saved for each assay & tissue combination:  
-- Number of samples per batch: `plots/[SAMPLE_TYPE]_n-samples-per-batch.pdf` (see [example](examples/plots/6_n-samples-per-batch.pdf))  
-- Heatmap of the number of individuals per group per batch: `plots/[SAMPLE_TYPE]_[BALANCE_VARIABLE]_distribution-across-batches`, where `[BALANCE_VARIABLE]` is one of `c('codedsiteid','randomgroupcode','sex_psca','older_than_40')` (see [examples](examples/plots)). **These plots should be visually examined to confirm that batches are adequately balanced, i.e. that numbers are reasonably distributed across each ROW.**    
-
+One plot is saved for each assay & tissue combination. This plot includes the number of individuals and samples per batch as well as the balance across each level of each `--vars-to-balance`. **These plots should be visually examined to confirm that batches are adequately balanced, i.e. that numbers are reasonably distributed across each ROW.** (see [examples](examples/plots)).   
 
 ## Usage 
 
@@ -39,36 +44,36 @@ readxl
 testit
 argparse
 ggplot2
+gtsummary
+pheatmap
 ```
 
 ### Example commands 
 Here is an example of how to run the script from the command line, assuming the shipment manifest Excel files and API metadata CSV files are in the same directory as this script. Include manifests and metadata for *all* pre-COVID clinical samples, i.e. both adult and pediatric shipments.  
 ```bash
 Rscript randomization.R \
-    --shipment-manifest-excel Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx \
-    --api-metadata-csv ADU830-10060.csv PED830-10062.csv \
+    --shipment-manifest-excel \
+      Stanford_ADU830-10060_120720.xlsx \
+      Stanford_PED830-10062_120720.xlsx \
+    --api-metadata-csv \
+      ADU830-10060.csv \
+      PED830-10062.csv \
     --max-n-per-batch 94 \
-    --outdir ../batches 
+    --outdir ~/Desktop/stanford_batches 
 ```  
 Equivalently:  
 
 ```bash
 Rscript randomization.R \
-    -ship Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx \
-    -api ADU830-10060.csv PED830-10062.csv \
+    -ship \
+      Stanford_ADU830-10060_120720.xlsx \
+      Stanford_PED830-10062_120720.xlsx \
+    -api \
+      ADU830-10060.csv \
+      PED830-10062.csv \
     -max 94 \
-    -o ../batches 
-```  
-A summary of batching statistics is printed to the console. To save all output to a log file for later reference, add ` > out.log 2>&1` to the end of the command, e.g.: 
-```bash
-Rscript randomization.R \
-    -ship Stanford_ADU830-10060_120720.xlsx Stanford_PED830-10062_120720.xlsx \
-    -api ADU830-10060.csv PED830-10062.csv \
-    -max 94 \
-    -o ../batches > ../batches/out.log 2>&1
-```
-See examples of this log file for [large batches](examples/large-batches.out.log) and [small batches (`--strict-size`)](examples/small-batches.out.log).   
-
+    -o ~/Desktop/stanford_batches 
+``` 
 Remember to add the `--strict-size` or `-s` flag if the maximum number of samples per batch is small, e.g.:  
 ```bash
 Rscript randomization.R \
@@ -78,17 +83,45 @@ Rscript randomization.R \
     -s \
     -o ~/Desktop/broad_batches 
 ```
+Add the `--max-full-batches` or `-f` flag to force as many batches as possible to have *exactly* `--max-n-per-batch` samples, e.g.:  
+```bash
+Rscript randomization.R \
+    -ship Stanford_ADU830-10060_120720.xlsx \
+    -api ADU830-10060.csv \
+    -max 88 \
+    -o ~/Desktop/stanford_batches \
+    --max-full-batches
+```
+To run the randomization script for a single tissue, use the `--tissue-subset` argument, where the supplied value must be a value in the 'Sample Type' column of one `--shipment-manifest-excel` OR a value in the 'SampleTypeCode' column of one `--api-metadata-csv`, e.g.:
+```bash
+Rscript randomization.R \
+    -ship \
+        Stanford_ADU830-10060_120720.xlsx \
+        Stanford_PED830-10062_120720.xlsx \
+    -api \
+        ADU830-10060.csv \
+        PED830-10062.csv \
+    -max 94 \
+    -o ~/Desktop/stanford_batches \
+    --tissue-subset 06 \
+    --overwrite
+```
+The `--overwrite` flag ignores existing batching outputs and overwrites the files. Without this flag, batching for a sample type will be skipped if a batching output already exists.  
 
-Alternatively, run the script interactively in RStudio by commenting out lines 16-41 and manually defining arguments below (see examples on lines 44-64).  
+See examples of the stdout for [large batches](examples/large-batches.out.log) and [small batches (`--strict-size`)](examples/small-batches.out.log).   
+
+Alternatively, run the script interactively in RStudio by commenting out lines 19-59 and manually defining arguments below (see examples on lines 61-110), though this is not recommended.  
 
 ## Argument documentation
 Run `Rscript randomization.R -h` to see this help message:  
 ```bash
 usage: randomization.R [-h] -ship SHIPMENT_MANIFEST_EXCEL
                        [SHIPMENT_MANIFEST_EXCEL ...] -api API_METADATA_CSV
-                       [API_METADATA_CSV ...] -max MAX_N_PER_BATCH [-s]
+                       [API_METADATA_CSV ...] -max MAX_N_PER_BATCH [-s] [-f]
                        [-v VARS_TO_BALANCE] [-o OUTDIR] [-q]
                        [-inner MAX_INNER_LOOP_ITER]
+                       [-outer MAX_OUTER_LOOP_ITER] [-b BALANCE_STRICTNESS]
+                       [--overwrite] [--tissue-subset TISSUE_SUBSET]
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -101,9 +134,12 @@ optional arguments:
                         ADU830-10060.csv PED830-10062.csv
   -max MAX_N_PER_BATCH, --max-n-per-batch MAX_N_PER_BATCH
                         Max number of samples per batch
-  -s, --strict-size     Force all batches to be as close to --max-n-per-batch
-                        as possible. Most applicable for small batches (e.g. <
-                        20)
+  -s, --strict-size     Force *all* batches to be as close to --max-n-per-
+                        batch as possible. Most applicable for small batches
+                        (e.g. < 20)
+  -f, --max-full-batches
+                        Force as many batches as possible to have *exactly*
+                        --max-n-per-batch samples.
   -v VARS_TO_BALANCE, --vars-to-balance VARS_TO_BALANCE
                         Force batches to include samples from at least two
                         groups of each of these variables. Must be defined in
@@ -114,6 +150,19 @@ optional arguments:
   -inner MAX_INNER_LOOP_ITER, --max-inner-loop-iter MAX_INNER_LOOP_ITER
                         Max number of failed attempts to fit all samples in
                         batches before increasing the number of batches
+  -outer MAX_OUTER_LOOP_ITER, --max-outer-loop-iter MAX_OUTER_LOOP_ITER
+                        Max number of failed attempts to find optimally
+                        balanced bacthes before relaxing the stringency of the
+                        balance checks
+  -b BALANCE_STRICTNESS, --balance-strictness BALANCE_STRICTNESS
+                        Initial strictness of balance checks, with 10 being
+                        the strictest and 1 being the most lenient
+  --overwrite           Overwrite existing batching results
+  --tissue-subset TISSUE_SUBSET
+                        Run batching for a single tissue. Must be a value in
+                        the 'Sample Type' column of one --shipment-manifest-
+                        excel OR a value in the 'SampleTypeCode' column of one
+                        --api-metadata-csv
 ```
 
 ## Help

@@ -1,6 +1,7 @@
 #!/bin/R
 # Nicole Gay
 # 22 April 2021
+# updated 22 June 2021
 # batching for MoTrPAC clinical samples
 
 library(data.table)
@@ -8,6 +9,8 @@ library(readxl)
 library(testit)
 library(argparse)
 library(ggplot2)
+library(gtsummary)
+library(pheatmap)
 
 # ARGUMENTS #########################################################################################################
 
@@ -21,7 +24,9 @@ parser$add_argument("-api", "--api-metadata-csv", required=T, type="character", 
 parser$add_argument("-max", "--max-n-per-batch", type="integer", required=T,
                     help="Max number of samples per batch")
 parser$add_argument("-s", "--strict-size", action="store_true", default=F,
-                    help="Force all batches to be as close to --max-n-per-batch as possible. Most applicable for small batches (e.g. < 20)")
+                    help="Force *all* batches to be as close to --max-n-per-batch as possible. Most applicable for small batches (e.g. < 20)")
+parser$add_argument("-f", "--max-full-batches", action="store_true", default=F,
+                    help="Force as many batches as possible to have *exactly* --max-n-per-batch samples.")
 parser$add_argument("-v", "--vars-to-balance", type="character", default=c('codedsiteid','randomgroupcode','sex_psca','older_than_40'),
                     help="Force batches to include samples from at least two groups of each of these variables. Must be defined in --api-metadata-csv")
 parser$add_argument("-o", "--outdir", type="character", default=".",
@@ -30,16 +35,29 @@ parser$add_argument("-q", "--quietly", action="store_true", default=FALSE,
                     help="Silence progress messages")
 parser$add_argument("-inner", "--max-inner-loop-iter", type="integer", default=1e6,
                     help="Max number of failed attempts to fit all samples in batches before increasing the number of batches")
+parser$add_argument("-outer", "--max-outer-loop-iter", type="integer", default=NULL,
+                    help="Max number of failed attempts to find optimally balanced bacthes before relaxing the stringency of the balance checks")
+parser$add_argument("-b", "--balance-strictness", type="integer", default=NULL,
+                    help="Initial strictness of balance checks, with 10 being the strictest and 1 being the most lenient")
+parser$add_argument("--overwrite", action="store_true", default=FALSE,
+                    help="Overwrite existing batching results")
+parser$add_argument("--tissue-subset", default=NULL,
+                    help="Run batching for a single tissue. Must be a value in the 'Sample Type' column of one --shipment-manifest-excel OR a value in the 'SampleTypeCode' column of one --api-metadata-csv")
 args = parser$parse_args()
 shipments = args$shipment_manifest_excel
 apis = args$api_metadata_csv
 max_n_per_batch = args$max_n_per_batch
 strict_size = args$strict_size
+max_full = args$max_full_batches
 balance_vars = args$vars_to_balance
 outdir = args$outdir
 verbose = !args$quietly
 max_inner_loop_iter = args$max_inner_loop_iter
-#
+max_outer_loop_iter = args$max_outer_loop_iter
+overwrite = args$overwrite
+init_balance_strictness = args$balance_strictness
+tissue_subset = args$tissue_subset
+
 ####
 #
 # # Broad proteomics example
@@ -47,27 +65,68 @@ max_inner_loop_iter = args$max_inner_loop_iter
 # apis = "~/Desktop/broad_batches/ADU822-10074.csv"
 # max_n_per_batch = 15
 # strict_size = T
+# max_full = F
 # balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
 # outdir = "~/Desktop/broad_batches"
 # verbose = T
 # max_inner_loop_iter = 1e6
+# max_outer_loop_iter = 1000
+# overwrite = F
+# init_balance_strictness = 1
+# tissue_subset = NULL
 #
 # # Stanford GET example
-# shipments = c("/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/Stanford_ADU830-10060_120720.xlsx","/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/Stanford_PED830-10062_120720.xlsx")
-# apis = c("/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/ADU830-10060.csv","/Users/nicolegay/Documents/motrpac/CLINICAL/batching_officer/PED830-10062.csv")
+# shipments = c("/Users/nicolegay/Documents/motrpac/CLINICAL/metadata/shipment/Stanford_ADU830-10060_120720.xlsx",
+#               "/Users/nicolegay/Documents/motrpac/CLINICAL/metadata/shipment/Stanford_PED830-10062_120720.xlsx")
+# apis = c("/Users/nicolegay/Documents/motrpac/CLINICAL/metadata/manifests/ADU830-10060.csv",
+#          "/Users/nicolegay/Documents/motrpac/CLINICAL/metadata/manifests/PED830-10062.csv")
 # max_n_per_batch = 94
 # strict_size = F
+# max_full = F
 # balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
 # outdir = "~/Desktop/stanford_batches"
 # verbose = T
 # max_inner_loop_iter = 1e6
+# max_outer_loop_iter = 5000
+# overwrite = F
+# init_balance_strictness = 10
+# tissue_subset = NULL
+# 
+# # metab example
+# shipments = c("/Users/nicolegay/Documents/motrpac/CLINICAL/metadata/shipment/Stanford_ADU830-10060_120720.xlsx")
+# apis = c("/Users/nicolegay/Documents/motrpac/CLINICAL/metadata/manifests/ADU830-10060.csv")
+# max_n_per_batch = 88
+# strict_size = F
+# max_full = T
+# balance_vars = c('codedsiteid','randomgroupcode','sex_psca','older_than_40')
+# outdir = "~/Desktop/metab_batches"
+# verbose = T
+# max_inner_loop_iter = 1e6
+# max_outer_loop_iter = 5000
+# overwrite = F
+# init_balance_strictness = 10
+# tissue_subset = NULL
 #
 #### 
 
-if(strict_size){
-  max_outer_loop_iter = 1000
-}else{
-  max_outer_loop_iter = 50 
+if(is.null(init_balance_strictness)){
+  if(strict_size){
+    init_balance_strictness = 1
+  }else{
+    init_balance_strictness = 10
+  }
+}
+
+if(max_full & strict_size){
+  stop("This script is not currently designed for cases where *both* --max-full-batches and --strict-size are TRUE. Please use only one of the two flags. --strict-size should be used for small batches, e.g. --max-n-per-batch < 20; --max-full-batches should be used for larger batches where the user wants to maximize the number of batches with exactly --max-n-per-batch samples.")
+}
+
+if(is.null(max_outer_loop_iter)){
+  if(strict_size){
+    max_outer_loop_iter = 1000
+  }else{
+    max_outer_loop_iter = 5000 
+  }
 }
 
 # FUNCTIONS #########################################################################################################
@@ -87,134 +146,100 @@ read_shipment = function(path){
 
 
 check_batch_balance = function(curr_batch_pid, 
+                               strictness, 
                                balance_vars = c('codedsiteid','randomgroupcode','sex_psca')){
+  
+  leniency = lapply(strictness, function(x) max(10-x, 0))
+  
+  # lowest strictness 1 == just make sure more than one level per balance_vars are represented in each batch
+  # this is the default for small batches
+  # high strictness 10 == the optimal number of samples per level per balance_vars are represented in each batch
+  # if necessary, iteratively lower strictness until a feasible scheme is found 
+  
   redo = F
+  failed = c()
   for(var in balance_vars){
     if(!var %in% colnames(curr_batch_pid)){
       warning(sprintf("Variable '%s' not found in column names of batch assignments. Skipping.", var))
       next
     }
-    # does any batch have all the same value for one of these groups?
+    
+    # balance
     m = as.matrix(table(curr_batch_pid[,get(var)], curr_batch_pid[,batch]))
-    m[m > 0] = 1
-    if(any(colSums(m) == 1)){
-      if(verbose){
-        message(sprintf("Batch(es) %s only includes samples from one group of %s:",
-                        paste0(which(colSums(m) == 1), collapse=','),
-                        var))
-        print(table(curr_batch_pid[,get(var)], curr_batch_pid[,batch]))
+    
+    if(leniency[[var]] == 9){
+      # just make sure at least two levels of each balance_var are present in each batch
+      # does any batch have all the same value for one of these groups?
+      m = as.matrix(table(curr_batch_pid[,get(var)], curr_batch_pid[,batch]))
+      m[m > 0] = 1
+      if(any(colSums(m) == 1)){
+        # if(verbose){
+        #   message(sprintf("Batch(es) %s only includes samples from one group of %s:",
+        #                   paste0(which(colSums(m) == 1), collapse=','),
+        #                   var))
+        #   print(table(curr_batch_pid[,get(var)], curr_batch_pid[,batch]))
+        # }
+        redo = T
+        failed = c(failed, var)
       }
-      redo = T
+    }else{
+      # optimal balance per row/level
+      optimal_per_row = apply(m, 1, function(x) floor(mean(x)))
+      optimal_per_row = optimal_per_row - leniency[[var]]
+      optimal_per_row[optimal_per_row < 0] = 0
+      # check that every value per row has at least this value
+      optimal_mat = matrix(data = optimal_per_row, nrow=nrow(m), ncol=ncol(m))
+      # if there are more samples for a given level than 2xn_batches, require at least one sample per batch 
+      optimal_mat[which(rowSums(m) > 2*ncol(m)),] = apply(optimal_mat[which(rowSums(m) > 2*ncol(m)),], c(1,2), function(x) max(x, 1))
+      
+      if(any(m < optimal_mat)){
+        # if(verbose){
+        #   message(sprintf("Batches not optimally balanced for %s with a strictness of %s", var, strictness))
+        # }
+        redo = T
+        failed = c(failed, var)
+      }
     }
   }
+  
   if(redo){
-    if(verbose) message("Trying again to find more balanced batches...\n")
+    #if(verbose) message("Trying again to find more balanced batches...\n")
     curr_batch_pid = NULL
   }else{
     if(verbose) message("Success!")
   }
-  return(list(batch_assignments = curr_batch_pid,
-              success = !redo))
+  return(list(success = !redo,
+              failed = failed))
 }
 
 
-# # make batches of roughly the same numbers of samples
-# # prioritize site and randgroupcode for randomization; check that age and sex are balanced by chance
-# make_batches_not_strict = function(nplates, curr_batch_pid, b, balance_vars){
-#   
-#   # while samples do not fit...
-#     # order samples by N and then group
-#     # for each row of curr_batch_pid
-#       # see if it fits in ANY batch
-#         # if yes, place and keep going 
-#         # if not, add plate; break
-#   
-#   curr_batch_pid[,group := paste0(codedsiteid, randomgroupcode)]
-#   curr_batch_pid = curr_batch_pid[order(N, group, decreasing = T)] 
-#   
-#   overflow = T
-#   while(overflow){
-#     
-#     # assign group, checking total size 
-#     batch_sizes = rep(0, nplates) 
-#     names(batch_sizes) = 1:nplates
-#     batch_iter = 1
-#     curr_batch_pid[,batch := NA_integer_]
-#     
-#     for (i in 1:nrow(curr_batch_pid)){
-#       
-#       # see if it fits in any batch
-#       if(!any(batch_sizes + curr_batch_pid[i, N] <= max_n_per_batch)){
-#         overflow = T
-#         if(verbose){
-#           message(sprintf("With this randomization, '%s' samples don't fit into %s batches. Trying with %s.",b, nplates,nplates+1))
-#         }
-#         nplates = nplates + 1
-#         overflow = T
-#         break
-#       }
-#       overflow = F
-#       
-#       # it fits in at least one batch. iterate over batches to put into first batch that it fits 
-#       which_fits = unname(which(batch_sizes + curr_batch_pid[i, N] <= max_n_per_batch))
-#       
-#       if(any(which_fits >= batch_iter)){
-#         # get first one greater than or equal to batch_iter
-#         which_fits = which_fits[which_fits >= batch_iter]
-#         which_fits = min(which_fits)
-#       }else{ 
-#         # if that doesn't work, start again at 1 
-#         which_fits[which_fits < batch_iter]
-#         which_fits = min(which_fits)
-#       }
-#       # add to batch
-#       curr_batch_pid[i, batch := which_fits] # assign batch
-#       batch_sizes[[which_fits]] = batch_sizes[[which_fits]] + curr_batch_pid[i, N] # increase size
-#       # increment batch
-#       batch_iter = batch_iter + 1
-#       if(batch_iter == nplates+1){
-#         batch_iter = 1
-#       }
-#     }
-#   }
-#   # at this point, all batches should be assigned
-#   batches = curr_batch_pid
-#   
-#   # check batch balance 
-#   check_batches = check_batch_balance(batches, balance_vars)
-#   if(!check_batches$success){
-#     # something, probably sex or age, was unbalanced
-#     # iteratively make batches until they are balanced
-#     warning("I didn't expect you to get here...")
-#     stop(sprintf("It looks like you want small batch sizes (N = %s). Please try re-running the script with the --strict-size flag for a batching method more suitable for small batch sizes.",
-#                  max_n_per_batch))
-#     batches = make_random_batches_not_strict(curr_batch_pid, b, max_n_per_batch, balance_vars)
-#   }
-#   
-#   return(batches)
-# }
-
-
-id_optimal_batch_sizes = function(curr_batch_pid, max_n_per_batch){
+id_optimal_batch_sizes = function(curr_batch_pid, max_n_per_batch, max_full){
   optimal_n_batches = ceiling(sum(curr_batch_pid[,N]) / max_n_per_batch)
-  optimal_batch_sizes = list()
-  for(i in 1:optimal_n_batches){
-    optimal_batch_sizes[[i]] = 0
-  }
-  j = 1
-  for(i in 1:sum(curr_batch_pid[,N])){
-    optimal_batch_sizes[[j]] = optimal_batch_sizes[[j]] + 1
-    j = j + 1
-    if(j > optimal_n_batches){
-      j = 1
+  if(!max_full){
+    optimal_batch_sizes = list()
+    for(i in 1:optimal_n_batches){
+      optimal_batch_sizes[[i]] = 0
     }
+    j = 1
+    for(i in 1:sum(curr_batch_pid[,N])){
+      optimal_batch_sizes[[j]] = optimal_batch_sizes[[j]] + 1
+      j = j + 1
+      if(j > optimal_n_batches){
+        j = 1
+      }
+    }
+    optimal_batch_sizes = unlist(optimal_batch_sizes)
+  }else{
+    # all but one batch should have max_n_per_batch
+    n_full = floor(sum(curr_batch_pid[,N])/max_n_per_batch)
+    remaining = sum(curr_batch_pid[,N]) - max_n_per_batch*n_full
+    optimal_batch_sizes = c(rep(max_n_per_batch, n_full), remaining)
   }
-  optimal_batch_sizes = unlist(optimal_batch_sizes)
   return(optimal_batch_sizes)
 }
 
 
-id_feasible_batch_sizes = function(curr_batch_pid, b, max_n_per_batch){
+id_feasible_batch_sizes = function(curr_batch_pid, b, max_n_per_batch, max_full){
   
   n_samples_per_pid = curr_batch_pid[,N]
   names(n_samples_per_pid) = curr_batch_pid[,pid]
@@ -253,6 +278,9 @@ id_feasible_batch_sizes = function(curr_batch_pid, b, max_n_per_batch){
   curr_batch_pid[,batch := pid_to_batches[pid]]
   
   sizes = unlist(lapply(sets, function(x) sum(unlist(x))))
+  if(max_full){
+    return(sizes)
+  }
   # can we make the smallest batch less small?
   # what is the difference between the smallest batch and the next smallest batch?
   ordered_sizes = sizes[order(sizes, decreasing=F)]
@@ -280,7 +308,7 @@ id_feasible_batch_sizes = function(curr_batch_pid, b, max_n_per_batch){
 # minimize the number of batches
 # when N samples is not divisible by max_n_per_batch, 
 # opt for batches as close to the same size as possible 
-make_batches_strict = function(curr_batch_pid, b, max_n_per_batch, 
+make_batches_strict = function(curr_batch_pid, b, max_n_per_batch, balance_strictness, max_full,
                                balance_vars = c('codedsiteid','randomgroupcode','sex_psca'),
                                verbose=T){
   
@@ -291,8 +319,16 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch,
   n_samples_per_pid = as.list(n_samples_per_pid)
   
   # first try to find batches with ideal batch size 
-  batch_sizes = id_optimal_batch_sizes(curr_batch_pid, max_n_per_batch)
+  batch_sizes = id_optimal_batch_sizes(curr_batch_pid, max_n_per_batch, max_full)
   
+  # keep track of which variables are failing balancing
+  if(max_full){
+    failed_balancing = list()
+    for(v in balance_vars){
+      failed_balancing[[v]] = 0
+    }
+  }
+
   # is it possible to make batches of this size? give up after 1e6 tries
   outer_loop = 1
   inner_loop = 1
@@ -323,7 +359,13 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch,
     }
     # this worked? 
     if(all(remaining_room_per_batch==0)){
-      if(verbose){
+      # only print once in a while if inner_loop is small 
+      if(inner_loop < 100){
+        pmessage = outer_loop %% 100 == 0
+      }else{
+        pmessage = T
+      }
+      if(verbose & pmessage){
         message(sprintf("Identified the %sth combination of samples that fits the ideal batch sizes after %s iterations. Checking balance...", outer_loop, inner_loop))
       }
       # match pid to batch
@@ -338,33 +380,68 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch,
       curr_batch_pid[,batch := pid_to_batches[pid]]
       
       # check if batches are balanced 
-      check_batches = check_batch_balance(curr_batch_pid, balance_vars)
+      if(max_full){
+        # if max_full, ignore the smallest batch when checking batch balance
+        curr_sizes = curr_batch_pid[,list(total=sum(N)), by=batch]
+        smallest_batch = curr_sizes[which.min(total), batch]
+        batches_to_check = curr_batch_pid[batch != smallest_batch]
+      }else{
+        batches_to_check = curr_batch_pid
+      }
+      check_batches = check_batch_balance(batches_to_check, balance_strictness, balance_vars)
       balanced_batches = check_batches$success
-      batch_assignments = check_batches$batch_assignments
+      batch_assignments = curr_batch_pid
       outer_loop = outer_loop + 1
       inner_loop = 1
+      
+      # keep track of which variables failed balancing (only for max_full)
+      if(max_full){
+        for(v in check_batches$failed){
+          failed_balancing[[v]] = failed_balancing[[v]] + 1
+        }
+      }
     }else{
       inner_loop = inner_loop + 1
       if(inner_loop>max_inner_loop_iter & !feasible_batches){
-        new_batch_sizes = id_feasible_batch_sizes(curr_batch_pid, b, max_n_per_batch)
+        new_batch_sizes = id_feasible_batch_sizes(curr_batch_pid, b, max_n_per_batch, max_full)
+        batch_sizes = new_batch_sizes
         warning(sprintf("With %s total samples and maximum %s samples per batch, the ideal number of samples per batch are as follows:\n%s\nHowever, after %s iterations, no combination of samples was found to fit these batch sizes. Trying again with the following batch sizes:\n%s",
                         sum(curr_batch_pid[,N]),
                         max_n_per_batch,
                         paste0(batch_sizes, collapse=', '),
                         inner_loop,
                         paste0(batch_sizes, collapse=', ')))
-        batch_sizes = new_batch_sizes
         feasible_batches = T
       }
       if(outer_loop > max_outer_loop_iter){
         if(verbose){
           writeLines(paste0(batch_sizes, collapse=', '))
         }
-        stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nHope for better luck and rerun the script - OR - try removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
-                     sum(curr_batch_pid[,N]),
-                     max_n_per_batch,
-                     outer_loop-1,
-                     paste0(balance_vars, collapse=', ')))
+        
+        if(strict_size){
+          stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nHope for better luck and rerun the script - OR - try removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
+                       sum(curr_batch_pid[,N]),
+                       max_n_per_batch,
+                       outer_loop-1,
+                       paste0(balance_vars, collapse=', ')))
+        }
+        if(max_full){
+          too_strict = names(which.max(failed_balancing))
+          message(sprintf("With %s total samples and %s samples per batch whenever possible, balanced batches were not found in %s candidate batches. The current balance strictness parameters are as follows:\n",
+                          sum(curr_batch_pid[,N]),
+                          max_n_per_batch,
+                          outer_loop-1))
+          print(balance_strictness)
+          message(sprintf("Decreasing balance strictness for %s by 1.", too_strict))
+          
+          balance_strictness[[too_strict]] = balance_strictness[[too_strict]] - 1
+          outer_loop = 1
+          inner_loop = 1
+          # reset table
+          for(v in balance_vars){
+            failed_balancing[[v]] = 0
+          }
+        }
       }
     }
   }
@@ -372,7 +449,7 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch,
 }
 
 
-make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch, 
+make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch, balance_strictness,
                                           balance_vars = c('codedsiteid','randomgroupcode','sex_psca'),
                                           verbose=T){
   
@@ -381,9 +458,16 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
   n_samples_per_pid = as.list(n_samples_per_pid)
   n_batches = ceiling(sum(curr_batch_pid[,N]) / max_n_per_batch)
   
+  # keep track of which variables are failing balancing
+  failed_balancing = list()
+  for(v in balance_vars){
+    failed_balancing[[v]] = 0
+  }
+  
   outer_loop = 1
   inner_loop = 1
   balanced_batches = F
+  already_reduced_stringency = F
   while(!balanced_batches){
     
     # set up batches 
@@ -424,8 +508,22 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
     }
     # this worked? 
     if(length(n_samples_per_pid_reordered)==0){
-      if(verbose){
+      # only print once in a while if inner_loop is small 
+      if(inner_loop < 100){
+        pmessage = outer_loop %% 100 == 0
+      }else{
+        pmessage = T
+      }
+      if(verbose & pmessage){
         message(sprintf("Identified the %sth combination of samples that fits the ideal batch sizes after %s iterations. Checking balance...", outer_loop, inner_loop))
+      }
+      
+      if(inner_loop > 5000 & !already_reduced_stringency){
+        message(sprintf("It took at least 1000 iterations to find a *single* combination of '%s' samples that fits in the ideal number of batches. Reducing stringency for batch balance checks.", b))
+        for(v in names(balance_strictness)){
+          balance_strictness[[v]] = 1
+        }
+        already_reduced_stringency = T
       }
       
       # match pid to batch
@@ -441,11 +539,17 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
       curr_batch_pid[,batch := pid_to_batches[pid]]
       
       # check if batches are balanced 
-      check_batches = check_batch_balance(curr_batch_pid, balance_vars)
+      check_batches = check_batch_balance(curr_batch_pid, balance_strictness, balance_vars)
       balanced_batches = check_batches$success
-      batch_assignments = check_batches$batch_assignments
+      #batch_assignments = check_batches$batch_assignments
+      batch_assignments = curr_batch_pid
       outer_loop = outer_loop + 1
       inner_loop = 1
+      
+      # keep track of which variables failed balancing 
+      for(v in check_batches$failed){
+        failed_balancing[[v]] = failed_balancing[[v]] + 1
+      }
     }else{
       inner_loop = inner_loop + 1
       if(inner_loop > max_inner_loop_iter){
@@ -457,12 +561,28 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
           stop(sprintf("It looks like you want small batch sizes (N = %s). Please try re-running the script with the --strict-size flag for a batching method more suitable for small batch sizes.",
                        max_n_per_batch))
         }else{
-          warning("I didn't expect you to get here...")
-          stop(sprintf("With %s total samples and up to %s samples per batch, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nHope for better luck and rerun the script - OR - try removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
+          too_strict = names(which.max(failed_balancing))
+          message(sprintf("With %s total samples and up to %s samples per batch, balanced batches were not found in %s candidate batches. The current balance strictness parameters are as follows:\n",
                        sum(curr_batch_pid[,N]),
                        max_n_per_batch,
-                       outer_loop-1,
-                       paste0(balance_vars, collapse=', ')))
+                       outer_loop-1))
+          print(balance_strictness)
+          if(all(balance_strictness == 10)){
+            message(sprintf("Decreasing balance strictness for %s by 1.", paste0(names(balance_strictness), collapse=', ')))
+            for(v in names(balance_strictness)){
+              balance_strictness[[v]] = max(1, balance_strictness[[v]] - 1)
+            }
+          }else{
+            message(sprintf("Decreasing balance strictness for %s by 1.", too_strict))
+            balance_strictness[[too_strict]] = max(1, balance_strictness[[too_strict]] - 1)
+          }
+          
+          outer_loop = 1
+          inner_loop = 1
+          # reset table
+          for(v in balance_vars){
+            failed_balancing[[v]] = 0
+          }
         }
       }
     }
@@ -470,44 +590,8 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch,
   return(batch_assignments)
 }
 
-
-batch_heatmap = function(batches, variable, batching_group, outdir){
-  batch_table = data.table(table(batches[,batch],batches[,get(variable)]))
-  colnames(batch_table) = c('batch',variable,'N')
-  batch_names = as.numeric(unique(batch_table[,batch]))
-  batch_names = as.character(batch_names[order(batch_names, decreasing=F)])
-  g = ggplot(batch_table, aes(x=batch, y=get(variable), fill=N)) +
-    geom_tile() +
-    theme_classic() +
-    labs(x='batch',y=variable,title=sprintf("N subj. per %s by batch\n('%s' samples)", variable, batching_group)) +
-    geom_text(aes(label=N), size=3) +
-    scale_fill_gradient(low="white", high="red", guide='none') +
-    theme(axis.text = element_text(colour="black"),
-          panel.border = element_rect(colour = "black", fill=NA, size=1),
-          axis.line = element_blank(),
-          plot.title = element_text(size=10)) +
-    scale_x_discrete(limits = batch_names) 
-  
-  #print(g)
-  
-  # save to pdf
-  height = 1 + length(unique(batches[,get(variable)]))*0.3
-  width = 0.5 + length(unique(batches[,batch]))*0.3 + 0.1*max(sapply(unique(batches[,get(variable)]), 
-                                                                     function(x) length(unlist(unname(strsplit(as.character(x), ''))))))
-  pdf(sprintf("%s/plots/%s_%s_distribution-across-batches.pdf", outdir, batching_group, variable), width, height)
-  print(g)
-  dev.off()
-}
-
 # CHECK FORMATS #########################################################################################################
 
-# check formats
-# if(length(shipments) == 0){
-#   stop("Required argument '--shipment-manifest-excel' is empty. Please provide at least one path.")
-# }
-# if(length(apis) == 0){
-#   stop("Required argument '--api-metadata-csv' is empty. Please provide at least one path.")
-# }
 if(!all(sapply(shipments, function(x) grepl("\\.xls", x, ignore.case=T)))){
   stop(sprintf("Shipment manifests are not in the expected .xls or .xlsx format: %s", paste(shipments, collapse=', ')))
 }
@@ -550,6 +634,32 @@ if(nrow(all_meta)!=nrow(api)){
           nrow(all_meta),
           paste0(basename(apis), collapse=', '),
           nrow(api)))
+}
+
+# check if we need to subset by a tissue
+if(!is.null(tissue_subset)){
+  # try to find a matching value in either `sample type` or `sampletypecode`
+  if(tissue_subset %in% all_meta[,sampletypecode]){
+    all_meta = all_meta[sampletypecode == tissue_subset]
+  }else if(tissue_subset %in% all_meta[,`sample type`]){
+    all_meta = all_meta[`sample type` == tissue_subset]
+  }else if(tolower(tissue_subset) %in% tolower(all_meta[,sampletypecode])){
+    all_meta = all_meta[tolower(sampletypecode) == tolower(tissue_subset)]
+  }else if(tolower(tissue_subset) %in% tolower(all_meta[,`sample type`])){
+    all_meta = all_meta[tolower(`sample type`) == tolower(tissue_subset)]
+  }else if(is.numeric(all_meta[,`sample type`])){
+    if(as.numeric(tissue_subset) %in% all_meta[,`sample type`]){
+      all_meta = all_meta[`sample type` == as.numeric(tissue_subset)]
+    }
+  }else if(is.numeric(all_meta[,sampletypecode])){
+    if(as.numeric(tissue_subset) %in% all_meta[,sampletypecode]){
+      all_meta = all_meta[sampletypecode == as.numeric(tissue_subset)]
+    }
+  }else{
+    stop(sprintf("Unable to match --tissue-subset '%s' to a value in either api$SampleTypeCode or ship$`Sample Type`. Available options to subset by tissue: %s",
+                 tissue_subset, 
+                 paste0(c(unique(all_meta[,sampletypecode]), unique(all_meta[,`sample type`])), collapse=', ')))
+  }
 }
 
 # subset to existing samples
@@ -610,6 +720,22 @@ for (b in unique(all_meta[,batching_group])){
     message(sprintf("\n\n--- BATCHING '%s' SAMPLES ---\n", b))
   }
 
+  # check that outfile hasn't already been generated
+  outfile1 = sprintf("%s/files/precovid_%s-samples_UNBLINDED-batch-characteristics.csv", outdir, gsub(" ","-",b))
+  if(file.exists(outfile1) & !overwrite){
+    m = sprintf("File %s for '%s' samples already exists. Skipping. Use the --overwrite flag to ignore existing batching results and force rebalancing.",
+                outfile1, b)
+    message(m)
+    warning(m)
+    next
+  }
+  
+  # set up balancing strictness
+  # can make this an argument in the future
+  # reset this for each tissue 
+  balance_strictness = rep(init_balance_strictness, length(balance_vars))
+  names(balance_strictness) = balance_vars
+
   curr_batch = unique(all_meta[batching_group == b])
   curr_batch_pid = unique(curr_batch[,.(codedsiteid, pid, randomgroupcode, sex_psca, calculatedage, older_than_40)])
   
@@ -621,64 +747,85 @@ for (b in unique(all_meta[,batching_group])){
   curr_batch_n[,pid := as.character(pid)]
   curr_batch_pid = merge(curr_batch_pid, curr_batch_n, by='pid')
   
-  if(strict_size){
-    batches = make_batches_strict(curr_batch_pid, b, max_n_per_batch, 
+  if(strict_size | max_full){
+    batches = make_batches_strict(curr_batch_pid, b, max_n_per_batch, balance_strictness, max_full, 
                                   balance_vars = balance_vars,
                                   verbose = verbose)
   }else{
-    #nplates = ceiling(nrow(curr_batch)/max_n_per_batch) 
-    #batches = make_batches_not_strict(nplates, curr_batch_pid, b, balance_vars)
-    batches = make_random_batches_not_strict(curr_batch_pid, b, max_n_per_batch, balance_vars = balance_vars, verbose = verbose)
+    batches = make_random_batches_not_strict(curr_batch_pid, b, max_n_per_batch, balance_strictness,
+                                             balance_vars = balance_vars, verbose = verbose)
   }
 
-  if(verbose){
-    cat('Sample totals:\n')
-    print(batches[,list(N_samples = sum(N)), by=batch])
-    cat('\nN subj. per sex by batch:\n')
-    print(table(batches[,sex_psca], batches[,batch], dnn=c("sex_psca", "batch")))
-    cat('\nN subj. per site by batch:\n')
-    print(table(batches[,codedsiteid], batches[,batch], dnn=c("codedsiteid", "batch")))
-    cat('\nN subj. per intervention by batch:\n')
-    print(table(batches[,randomgroupcode], batches[,batch], dnn=c("randomgroupcode", "batch")))
-    cat('\nN subj. per age group by batch (>40 yrs):\n')
-    print(table(batches[,older_than_40], batches[,batch], dnn=c("older_than_40", "batch")))
-  }
+  # make nice heatmap table
+  b2 = copy(batches)
+  b2[, batch := paste0("Batch ", batch)]
+  b2[,subj := 1]
+  tb = gtsummary::tbl_summary(b2[,.(calculatedage, sex_psca, codedsiteid, randomgroupcode, batch, N, subj)], 
+                         by='batch',
+                         type=list(N ~ "continuous",
+                                   calculatedage ~ "continuous",
+                                   sex_psca ~ "categorical",
+                                   codedsiteid ~ "categorical",
+                                   randomgroupcode ~ "categorical",
+                                   subj ~ "continuous"),
+                         label=list(N ~ "N samples",
+                                   calculatedage ~ "Age",
+                                   sex_psca ~ "Sex",
+                                   codedsiteid ~ "Site code",
+                                   randomgroupcode ~ "Intervention group",
+                                   subj ~ "N subjects"),
+                         statistic = list(all_continuous() ~ "{median} ({min},{max})",
+                                          all_categorical() ~ "{n}",
+                                          N ~ "{sum}",
+                                          subj ~ "{sum}"),
+                         digits = list(subj ~ "0"))
+  tb_df = as.data.frame(gtsummary::as_tibble(tb))
+  colnames(tb_df) = c('characteristic', paste0('Batch', 1:max(batches[,batch])))
+  # can't figure out how to color this or save it to a file...
+  # can we just use pheatmap for now?
+  rownames(tb_df) = tb_df$characteristic
+  tb_df$characteristic = NULL
   
-  ## make heatmaps
-  # sample totals 
-  sample_totals = batches[,list(N_samples = sum(N)), by=batch]
-  batch_names = as.numeric(unique(sample_totals[,batch]))
-  batch_names = as.character(batch_names[order(batch_names, decreasing=F)])
-  sample_totals[,y := 'N']
-  g = ggplot(sample_totals, aes(x=batch, y=y, fill=N_samples)) +
-    geom_tile() +
-    theme_classic() +
-    labs(x='batch',title=sprintf("N samples per batch ('%s' samples)", b)) +
-    geom_text(aes(label=N_samples), size=3) +
-    scale_fill_gradient(low="white", high="red", guide='none') +
-    theme(axis.text = element_text(colour="black"),
-          panel.border = element_rect(colour = "black", fill=NA, size=1),
-          axis.line = element_blank(),
-          plot.title = element_text(size=10),
-          axis.text.y = element_blank(),
-          axis.ticks.y = element_blank(),
-          axis.title.y = element_blank()) +
-    scale_x_discrete(limits = batch_names) 
-  #print(g)
-  height = 1
-  width = 0.5 + length(unique(batches[,batch]))*0.3
-  pdf(sprintf("%s/plots/%s_n-samples-per-batch.pdf", outdir, b), width, height)
-  print(g)
+  # reorder rows
+  sites = unique(curr_batch[,codedsiteid])
+  sites = as.character(sites[order(sites, decreasing=F)])
+  randgroup = unique(curr_batch[,randomgroupcode])
+  randgroup = randgroup[order(randgroup)]
+  tb_df = tb_df[c("N subjects", "N samples", "Age", "Sex", "1", "2", 
+                  "Site code", sites,
+                  "Intervention group", randgroup),]
+  
+  labels = tb_df
+  labels[is.na(labels)] = ''
+  values = tb_df
+  values["Age",] = as.numeric(gsub(" .*","",values["Age",]))
+  values = as.data.frame(apply(values, c(1,2), as.numeric))
+  
+  rownames(values)[rownames(values)=='Age'] = 'Age [med (min,max)]'
+  rownames(labels)[rownames(labels)=='Age'] = 'Age [med (min,max)]'
+  
+  p = pheatmap(values,
+           color = rev(heat.colors(50)),
+           scale = "row",
+           cluster_rows = F,
+           cluster_cols = F,
+           legend = F,
+           display_numbers = labels,
+           na_col = 'gray',
+           fontsize_col = 10,
+           fontsize_row = 10,
+           fontsize_number = 10,
+           main = b,
+           gaps_row = 2)
+  
+  w = 0.5 + length(unique(batches[,batch]))*0.9
+  pdf(sprintf("%s/plots/batch-characteristics_%s.pdf", outdir, b), width=w, height=8)
+  print(p)
   dev.off()
-  
-  # balance vars
-  for(var in c('sex_psca', 'codedsiteid', 'randomgroupcode', 'older_than_40')){
-    batch_heatmap(batches, var, b, outdir)
-  }
   
   # write two versions to file 
   # batch characteristics 
-  write.table(batches, file=sprintf("%s/files/precovid_%s-samples_UNBLINDED-batch-characteristics.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
+  write.table(batches, file=outfile1, sep=',', col.names=T, row.names=F, quote=F)
   
   # current and new positions 
   curr_batch[,pid := as.character(pid)]
@@ -701,10 +848,9 @@ for (b in unique(all_meta[,batching_group])){
             b,
             paste(unique(positions[,shipping_position], collapse=',')))
   }
-
   write.table(positions, file=sprintf("%s/files/precovid_%s-samples_BLINDED-batch-assignments.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
 }
 message("\nDone!")
-message(sprintf("\nPlease manually check the plots in %s/plots to ensure that batches are satisfactorily balanced, i.e. numbers are reasonably distributed across each ROW/variable level. Rerun the script if you are not satisfied with the balance.", gsub("/$","",outdir)))
+message(sprintf("\nPlease manually check the plots in %s/plots to ensure that batches are satisfactorily balanced, i.e. numbers are reasonably distributed across each ROW/variable level. Rerun the script if you are not satisfied with the balance.\n", gsub("/$","",outdir)))
 
 warnings()
