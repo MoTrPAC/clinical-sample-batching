@@ -859,7 +859,6 @@ for (b in unique(all_meta[,batching_group])){
     }
     all_info = all_info[order(batch, ptmp_rand, decreasing = F)]
     all_info[,injection_order := 1:nrow(all_info)]
-    write.table(all_info, file="~/Desktop/check.txt", sep='\t', col.names=T, row.names=F, quote=F)
     all_info[,c("ptmp","ptmp_rand") := NULL]
     positions = all_info[,.(injection_order, viallabel, barcode, sampletypecode, box, position, batch)]
     colnames(positions) = c('injection_order', 'viallabel','barcode','sampletypecode','shipping_box','shipping_position','new_batch')
