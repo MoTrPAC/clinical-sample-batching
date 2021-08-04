@@ -1,7 +1,7 @@
 #!/bin/R
 # Nicole Gay
 # 22 April 2021
-# updated 22 June 2021
+# updated 4 August 2021
 # batching for MoTrPAC clinical samples
 
 library(data.table)
@@ -43,6 +43,11 @@ parser$add_argument("--overwrite", action="store_true", default=FALSE,
                     help="Overwrite existing batching results")
 parser$add_argument("--tissue-subset", default=NULL,
                     help="Run batching for a single tissue. Must be a value in the 'Sample Type' column of one --shipment-manifest-excel OR a value in the 'SampleTypeCode' column of one --api-metadata-csv")
+parser$add_argument("--block-randomization", action="store_true", default=FALSE,
+                    help="Block randomization for metabolomics sites: samples within a batch are ordered by individual; samples within an individual are randomized. This adds an 'injection_order' column.")
+parser$add_argument("--separate-batch-files", action="store_true", default=FALSE,
+                    help="Write separate BLINDED output files per batch")
+
 args = parser$parse_args()
 shipments = args$shipment_manifest_excel
 apis = args$api_metadata_csv
@@ -57,6 +62,8 @@ max_outer_loop_iter = args$max_outer_loop_iter
 overwrite = args$overwrite
 init_balance_strictness = args$balance_strictness
 tissue_subset = args$tissue_subset
+block_randomization = args$block_randomization
+separate_batch_files = args$separate_batch_files
 
 ####
 #
@@ -74,6 +81,8 @@ tissue_subset = args$tissue_subset
 # overwrite = F
 # init_balance_strictness = 1
 # tissue_subset = NULL
+# block_randomization = F
+# separate_batch_files = F
 #
 # # Stanford GET example
 # shipments = c("/Users/nicolegay/Documents/motrpac/CLINICAL/metadata/shipment/Stanford_ADU830-10060_120720.xlsx",
@@ -89,8 +98,10 @@ tissue_subset = args$tissue_subset
 # max_inner_loop_iter = 1e6
 # max_outer_loop_iter = 5000
 # overwrite = F
-# init_balance_strictness = 10
-# tissue_subset = NULL
+# init_balance_strictness = 8
+# tissue_subset = 'Muscle'
+# block_randomization = T
+# separate_batch_files = T
 # 
 # # metab example
 # shipments = c("/Users/nicolegay/Documents/motrpac/CLINICAL/metadata/shipment/Stanford_ADU830-10060_120720.xlsx")
@@ -106,6 +117,8 @@ tissue_subset = args$tissue_subset
 # overwrite = F
 # init_balance_strictness = 10
 # tissue_subset = NULL
+# block_randomization = F
+# separate_batch_files = F
 #
 #### 
 
@@ -720,7 +733,7 @@ for (b in unique(all_meta[,batching_group])){
     message(sprintf("\n\n--- BATCHING '%s' SAMPLES ---\n", b))
   }
 
-  # check that outfile hasn't already been generated
+  # check that the outfile hasn't already been generated
   outfile1 = sprintf("%s/files/precovid_%s-samples_UNBLINDED-batch-characteristics.csv", outdir, gsub(" ","-",b))
   if(file.exists(outfile1) & !overwrite){
     m = sprintf("File %s for '%s' samples already exists. Skipping. Use the --overwrite flag to ignore existing batching results and force rebalancing.",
@@ -729,7 +742,7 @@ for (b in unique(all_meta[,batching_group])){
     warning(m)
     next
   }
-  
+
   # set up balancing strictness
   # can make this an argument in the future
   # reset this for each tissue 
@@ -831,8 +844,29 @@ for (b in unique(all_meta[,batching_group])){
   curr_batch[,pid := as.character(pid)]
   all_info = merge(curr_batch, batches[,.(pid, batch)], by='pid')
   assert(nrow(all_info) == nrow(curr_batch))
-  positions = all_info[,.(viallabel, barcode, sampletypecode, box, position, batch)]
-  colnames(positions) = c('viallabel','barcode','sampletypecode','shipping_box','shipping_position','new_batch')
+  
+  if(block_randomization){
+    all_info[,ptmp := NA_real_]
+    for(BATCH in unique(all_info[,batch])){
+      # within a batch, randomize patients while keeping all samples from a patient together
+      pids = unique(all_info[batch==BATCH,pid])
+      pids_rand = 1:length(pids)
+      names(pids_rand) = as.character(sample(pids, length(pids), replace=F))
+      all_info[batch==BATCH, ptmp := pids_rand[as.character(pid)]]
+      # then randomize samples within patient
+      rand_n = runif(nrow(all_info[batch==BATCH]))
+      all_info[batch==BATCH, ptmp_rand := ptmp + rand_n]
+    }
+    all_info = all_info[order(batch, ptmp_rand, decreasing = F)]
+    all_info[,injection_order := 1:nrow(all_info)]
+    write.table(all_info, file="~/Desktop/check.txt", sep='\t', col.names=T, row.names=F, quote=F)
+    all_info[,c("ptmp","ptmp_rand") := NULL]
+    positions = all_info[,.(injection_order, viallabel, barcode, sampletypecode, box, position, batch)]
+    colnames(positions) = c('injection_order', 'viallabel','barcode','sampletypecode','shipping_box','shipping_position','new_batch')
+  }else{
+    positions = all_info[,.(viallabel, barcode, sampletypecode, box, position, batch)]
+    colnames(positions) = c('viallabel','barcode','sampletypecode','shipping_box','shipping_position','new_batch')
+  }
   positions[,new_batch := paste0("batch_",new_batch)]
   # order across rows 
   if(all(grepl("^[A-z]", positions[,shipping_position]))){
@@ -848,7 +882,19 @@ for (b in unique(all_meta[,batching_group])){
             b,
             paste(unique(positions[,shipping_position], collapse=',')))
   }
-  write.table(positions, file=sprintf("%s/files/precovid_%s-samples_BLINDED-batch-assignments.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
+  
+  if(block_randomization){
+    positions = positions[order(injection_order, decreasing=F)]
+  }
+  
+  if(!separate_batch_files){
+    write.table(positions, file=sprintf("%s/files/precovid_%s-samples_BLINDED-batch-assignments.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
+  }else{
+    for(batch in unique(positions[,new_batch])){
+      sub = positions[new_batch == batch]
+      write.table(sub, file=sprintf("%s/files/precovid_%s-samples_BLINDED-%s-assignments.csv", outdir, gsub(" ","-",b), batch), sep=',', col.names=T, row.names=F, quote=F)
+    }
+  }
 }
 message("\nDone!")
 message(sprintf("\nPlease manually check the plots in %s/plots to ensure that batches are satisfactorily balanced, i.e. numbers are reasonably distributed across each ROW/variable level. Rerun the script if you are not satisfied with the balance.\n", gsub("/$","",outdir)))
