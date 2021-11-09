@@ -771,7 +771,9 @@ for (b in unique(all_meta[,batching_group])){
 
   # make nice heatmap table
   b2 = copy(batches)
-  b2[, batch := paste0("Batch ", batch)]
+  # order batch numerically
+  nb = length(unique(b2[,batch]))
+  b2[, batch := factor(paste0("Batch ", batch), levels = c(paste0("Batch ", 1:nb)))]
   b2[,subj := 1]
   tb = gtsummary::tbl_summary(b2[,.(calculatedage, sex_psca, codedsiteid, randomgroupcode, batch, N, subj)], 
                          by='batch',
@@ -793,7 +795,7 @@ for (b in unique(all_meta[,batching_group])){
                                           subj ~ "{sum}"),
                          digits = list(subj ~ "0"))
   tb_df = as.data.frame(gtsummary::as_tibble(tb))
-  colnames(tb_df) = c('characteristic', paste0('Batch', 1:max(batches[,batch])))
+  colnames(tb_df) = c('characteristic', paste0('Batch', 1:nb))
   # can't figure out how to color this or save it to a file...
   # can we just use pheatmap for now?
   rownames(tb_df) = tb_df$characteristic
