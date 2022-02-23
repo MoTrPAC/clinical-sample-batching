@@ -14,7 +14,7 @@ library(pheatmap)
 
 # ARGUMENTS #########################################################################################################
 
-### if you want to run this code in RStudio instead of from the command line, 
+### if you want to run this code in RStudio instead of from the command line,
 ### comment out this chunk and uncomment/define the variables listed underneath
 parser = ArgumentParser()
 parser$add_argument("-ship", "--shipment-manifest-excel", required=T, type="character", nargs="+",
@@ -119,7 +119,6 @@ separate_batch_files = args$separate_batch_files
 # tissue_subset = NULL
 # block_randomization = F
 # separate_batch_files = F
-#
 #### 
 
 if(is.null(init_balance_strictness)){
@@ -157,12 +156,22 @@ read_shipment = function(path){
   return(full)
 }
 
-
 check_batch_balance = function(curr_batch_pid, 
-                               strictness, 
+                               strictness, max_full, 
                                balance_vars = c('codedsiteid','randomgroupcode','sex_psca')){
   
   leniency = lapply(strictness, function(x) max(10-x, 0))
+  
+  # is there only one batch?
+  if(length(unique(curr_batch_pid[,batch]))==1){
+    if(max_full){
+      message("With the --max-full-batches argument, batch balance is only checked in full batches because the remaining batch can have very few samples, in which case it would be difficult to assess balance. There is only one full batch for these samples, so batch balance will not be checked. Please inspect the generated plots to ensure that the batches are sufficiently balanced. If not, rerun the script until you are satisfied with the balance.")
+      return(list(success = TRUE,
+                  failed = c()))
+    }else{
+      warning("The code should never get here...")
+    }
+  }
   
   # lowest strictness 1 == just make sure more than one level per balance_vars are represented in each batch
   # this is the default for small batches
@@ -178,7 +187,7 @@ check_batch_balance = function(curr_batch_pid,
     }
     
     # balance
-    m = as.matrix(table(curr_batch_pid[,get(var)], curr_batch_pid[,batch]))
+    m = as.matrix(table(curr_batch_pid[,get(var)], curr_batch_pid[,batch],  dnn=c("var","batch")))
     
     if(leniency[[var]] == 9){
       # just make sure at least two levels of each balance_var are present in each batch
@@ -330,7 +339,7 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch, balance_stric
   n_samples_per_pid = curr_batch_pid[,N]
   names(n_samples_per_pid) = curr_batch_pid[,pid]
   n_samples_per_pid = as.list(n_samples_per_pid)
-  
+
   # first try to find batches with ideal batch size 
   batch_sizes = id_optimal_batch_sizes(curr_batch_pid, max_n_per_batch, max_full)
   
@@ -401,7 +410,7 @@ make_batches_strict = function(curr_batch_pid, b, max_n_per_batch, balance_stric
       }else{
         batches_to_check = curr_batch_pid
       }
-      check_batches = check_batch_balance(batches_to_check, balance_strictness, balance_vars)
+      check_batches = check_batch_balance(batches_to_check, balance_strictness, max_full, balance_vars)
       balanced_batches = check_batches$success
       batch_assignments = curr_batch_pid
       outer_loop = outer_loop + 1
@@ -552,7 +561,7 @@ make_random_batches_not_strict = function(curr_batch_pid, b, max_n_per_batch, ba
       curr_batch_pid[,batch := pid_to_batches[pid]]
       
       # check if batches are balanced 
-      check_batches = check_batch_balance(curr_batch_pid, balance_strictness, balance_vars)
+      check_batches = check_batch_balance(curr_batch_pid, balance_strictness, max_full, balance_vars)
       balanced_batches = check_batches$success
       #batch_assignments = check_batches$batch_assignments
       batch_assignments = curr_batch_pid
@@ -710,9 +719,26 @@ message(sprintf("\nThese columns have 0 variance in the merged metadata: %s",
 # all_meta[,(remove) := NULL]
 
 #table(all_meta[,sampletypecode], all_meta[,randomgroupcode])
-# 4 = PaxGene RNA
-# 5 = PBMC
-# 6 = Muscle
+# 01 = Human Serum
+# 02 = Human EDTA Plasma
+# 03 = Human EDTA Packed Cells
+# 04 = Human PAXgene RNA 05 = Human PBMC
+# 06 = Human Muscle
+# 07 = Human Adipose
+# 08 = Human Urine
+# 09 = Human Stool
+# 10 = Human Muscle Powder
+# 11 = Human Adipose Powder
+# 12 = Human EDTA 2 Plasma
+# 13 = Human Heparin Plasma
+# 14 = Human IMAT
+# 15 = Human Packed Cells DMSO 
+# 16 = Human Muscle Cell Passage 2 
+# 17 = Human Muscle Cell Passage 3
+# 18 = Human Muscle Cell Passage 4
+# 19 = Human Mycoplasma
+# 20 = Human Muscle Histology
+# 21 = Human Adipose Histology
 
 # randomize batches for each assay & tissue
 # we want to randomize on site, randomgroupcode (which includes ped vs adult), sex, calculatedage 
@@ -724,6 +750,11 @@ if(!"assay" %in% colnames(all_meta)){
 }else{
   all_meta[,batching_group := paste0(assay, '_', sampletypecode)]
 }
+if(length(unique(all_meta[,sampletypecode]))>1){
+  message(sprintf("Batching will be performed separately for each of the following 'sampletypecode': %s", paste0(unique(all_meta[,sampletypecode]), collapse=", ")))
+  message("If this is not what you want, respecify api$SampleTypeCode AND/OR ship$`Sample Type` columns in the input files.")
+}
+
 
 # BATCHING #########################################################################################################
 
@@ -760,13 +791,23 @@ for (b in unique(all_meta[,batching_group])){
   curr_batch_n[,pid := as.character(pid)]
   curr_batch_pid = merge(curr_batch_pid, curr_batch_n, by='pid')
   
-  if(strict_size | max_full){
-    batches = make_batches_strict(curr_batch_pid, b, max_n_per_batch, balance_strictness, max_full, 
-                                  balance_vars = balance_vars,
-                                  verbose = verbose)
+  # is it a single batch?
+  if(sum(curr_batch_pid[,N])<=max_n_per_batch){
+    message(sprintf("Number of '%s' samples (%s) is less than or equal to max_n_per_batch (%s). No rebalancing necessary.",
+                    b,
+                    sum(curr_batch_pid[,N]),
+                    max_n_per_batch))
+    batches = curr_batch_pid
+    batches[,batch := 1]
   }else{
-    batches = make_random_batches_not_strict(curr_batch_pid, b, max_n_per_batch, balance_strictness,
-                                             balance_vars = balance_vars, verbose = verbose)
+    if(strict_size | max_full){
+      batches = make_batches_strict(curr_batch_pid, b, max_n_per_batch, balance_strictness, max_full, 
+                                    balance_vars = balance_vars,
+                                    verbose = verbose)
+    }else{
+      batches = make_random_batches_not_strict(curr_batch_pid, b, max_n_per_batch, balance_strictness,
+                                               balance_vars = balance_vars, verbose = verbose)
+    }
   }
 
   # make nice heatmap table
