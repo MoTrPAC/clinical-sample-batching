@@ -816,15 +816,16 @@ for (b in unique(all_meta[,batching_group])){
   nb = length(unique(b2[,batch]))
   b2[, batch := factor(paste0("Batch ", batch), levels = c(paste0("Batch ", 1:nb)))]
   b2[,subj := 1]
-  tb = gtsummary::tbl_summary(b2[,.(calculatedage, sex_psca, codedsiteid, randomgroupcode, batch, N, subj)], 
-                         by='batch',
-                         type=list(N ~ "continuous",
+  b2_tibble = as_tibble(b2[,.(calculatedage, sex_psca, codedsiteid, randomgroupcode, batch, N, subj)])
+  tb = gtsummary::tbl_summary(b2_tibble, 
+                         by = 'batch',
+                         type = list(N ~ "continuous",
                                    calculatedage ~ "continuous",
                                    sex_psca ~ "categorical",
                                    codedsiteid ~ "categorical",
                                    randomgroupcode ~ "categorical",
                                    subj ~ "continuous"),
-                         label=list(N ~ "N samples",
+                         label = list(N ~ "N samples",
                                    calculatedage ~ "Age",
                                    sex_psca ~ "Sex",
                                    codedsiteid ~ "Site code",
@@ -834,7 +835,7 @@ for (b in unique(all_meta[,batching_group])){
                                           all_categorical() ~ "{n}",
                                           N ~ "{sum}",
                                           subj ~ "{sum}"),
-                         digits = list(subj ~ "0"))
+                         digits = all_continuous() ~ 0)
   tb_df = as.data.frame(gtsummary::as_tibble(tb))
   colnames(tb_df) = c('characteristic', paste0('Batch', 1:nb))
   # can't figure out how to color this or save it to a file...
