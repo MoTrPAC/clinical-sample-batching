@@ -1,2 +1,3 @@
 test_commands.sh
 *.DS_Store
+.Rproj.user
