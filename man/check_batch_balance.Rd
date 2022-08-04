@@ -8,7 +8,8 @@ check_batch_balance(
   curr_batch_pid,
   strictness,
   max_full,
-  balance_vars = c("codedsiteid", "randomgroupcode", "sex_psca")
+  balance_vars = c("codedsiteid", "randomgroupcode", "sex_psca"),
+  verbose = TRUE
 )
 }
 \arguments{
@@ -20,6 +21,8 @@ with 10 being the strictest and 1 being the most lenient}
 \item{max_full}{bool, whether to force as many batches as possible to have \emph{exactly} \code{max_n_per_batch} samples}
 
 \item{balance_vars}{character vector of variables for which to check balance}
+
+\item{verbose}{bool, whether to print progress messages}
 }
 \value{
 a named list of two items:

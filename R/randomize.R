@@ -39,9 +39,12 @@
 #' @import ggplot2
 #' @import gtsummary
 #' @import pheatmap
+#' @importFrom grDevices dev.off heat.colors pdf
+#' @importFrom stats runif
+#' @importFrom utils write.table
 #'
 #' @examples
-#' TODO
+#' print("TODO")
 #' 
 #' @details 
 #' TODO
@@ -60,6 +63,35 @@ randomize = function(shipment_manifest_excel,
                      tissue_subset = NULL,
                      block_randomization = FALSE,
                      separate_batch_files = FALSE){
+  
+  # data.table variables 
+  # define to avoid notes during check 
+  older_than_40 = 
+    calculatedage = 
+    viallabel = 
+    `2d barcode` = 
+    sampletypecode = 
+    `sample type` = 
+    box = 
+    pid = 
+    protocol = 
+    codedsiteid = 
+    barcode = 
+    randomgroupcode = 
+    sex_psca = 
+    position = 
+    assay = 
+    batching_group = 
+    N = 
+    subj = 
+    ptmp = 
+    ptmp_rand = 
+    injection_order = 
+    new_batch = 
+    shipping_position = 
+    shipping_row = 
+    shipping_column = 
+    shipping_box = NULL
   
   shipments = shipment_manifest_excel
   apis = api_metadata_csv
@@ -278,10 +310,12 @@ randomize = function(shipment_manifest_excel,
     }else{
       if(strict_size | max_full){
         batches = make_batches_strict(curr_batch_pid, max_n_per_batch, balance_strictness, max_full, 
+                                      max_inner_loop_iter, max_outer_loop_iter, strict_size, 
                                       balance_vars = balance_vars,
                                       verbose = verbose)
       }else{
-        batches = make_random_batches_not_strict(curr_batch_pid, max_n_per_batch, balance_strictness,
+        batches = make_random_batches_not_strict(curr_batch_pid, max_n_per_batch, balance_strictness, b, 
+                                                 max_full, max_inner_loop_iter, max_outer_loop_iter, 
                                                  balance_vars = balance_vars, verbose = verbose)
       }
     }
@@ -454,6 +488,7 @@ read_shipment = function(path){
 #'   with 10 being the strictest and 1 being the most lenient
 #' @param max_full bool, whether to force as many batches as possible to have *exactly* \code{max_n_per_batch} samples
 #' @param balance_vars character vector of variables for which to check balance 
+#' @param verbose bool, whether to print progress messages
 #'
 #' @return a named list of two items:
 #' \describe{
@@ -464,7 +499,11 @@ read_shipment = function(path){
 #' @details TODO
 check_batch_balance = function(curr_batch_pid, 
                                strictness, max_full, 
-                               balance_vars = c('codedsiteid','randomgroupcode','sex_psca')){
+                               balance_vars = c('codedsiteid','randomgroupcode','sex_psca'),
+                               verbose = TRUE){
+  
+  # for data.table variables 
+  batch = NULL 
   
   leniency = lapply(strictness, function(x) max(10-x, 0))
   
@@ -541,10 +580,11 @@ check_batch_balance = function(curr_batch_pid,
 #' @param max_full bool, whether to force as many batches as possible to have *exactly* \code{max_n_per_batch} samples
 #'
 #' @return list of optimal batch sizes
-#'
-#' @examples
-#' TODO
 id_optimal_batch_sizes = function(curr_batch_pid, max_n_per_batch, max_full){
+  
+  # for data.table variables
+  N = NULL
+  
   optimal_n_batches = ceiling(sum(curr_batch_pid[,N]) / max_n_per_batch)
   if(!max_full){
     optimal_batch_sizes = list()
@@ -582,6 +622,9 @@ id_optimal_batch_sizes = function(curr_batch_pid, max_n_per_batch, max_full){
 #'
 #' @return vector of batch sizes
 id_feasible_batch_sizes = function(curr_batch_pid, max_n_per_batch, max_full){
+  
+  # for data.table variables 
+  N = pid = batch = NULL
   
   n_samples_per_pid = curr_batch_pid[,N]
   names(n_samples_per_pid) = curr_batch_pid[,pid]
@@ -660,13 +703,23 @@ id_feasible_batch_sizes = function(curr_batch_pid, max_n_per_batch, max_full){
 #' @param balance_vars character vector, force batches to include samples from at 
 #'   least one level of each of these variables
 #' @param verbose bool, whether to print progress messages
+#' @param max_inner_loop_iter integer, max number of failed attempts to fit all samples 
+#'   in batches before increasing the number of batches
+#' @param max_outer_loop_iter integer, max number of failed attempts to find optimally 
+#'   balanced batches before relaxing the stringency of the balance checks
+#' @param strict_size bool, force *all* batches to be as close to \code{max_n_per_batch} as possible. 
+#'   Most applicable for small batches (e.g. < 20).
 #'
 #' @return data table of batch assignments or NULL if batching failed 
 #' 
 #' @details TODO
 make_batches_strict = function(curr_batch_pid, max_n_per_batch, balance_strictness, max_full,
+                               max_inner_loop_iter, max_outer_loop_iter, strict_size, 
                                balance_vars = c('codedsiteid','randomgroupcode','sex_psca'),
                                verbose=T){
+  
+  # for data.table variables 
+  N = pid = batch = total = NULL
   
   feasible_batches = FALSE
   
@@ -744,7 +797,7 @@ make_batches_strict = function(curr_batch_pid, max_n_per_batch, balance_strictne
       }else{
         batches_to_check = curr_batch_pid
       }
-      check_batches = check_batch_balance(batches_to_check, balance_strictness, max_full, balance_vars)
+      check_batches = check_batch_balance(batches_to_check, balance_strictness, max_full, balance_vars, verbose)
       balanced_batches = check_batches$success
       batch_assignments = curr_batch_pid
       outer_loop = outer_loop + 1
@@ -813,16 +866,26 @@ make_batches_strict = function(curr_batch_pid, max_n_per_batch, balance_strictne
 #' @param max_n_per_batch integer, max number of samples per batch
 #' @param balance_strictness integer, initial strictness of balance checks, 
 #'   with 10 being the strictest and 1 being the most lenient
+#' @param b character, sample type description
 #' @param balance_vars character vector, force batches to include samples from at 
 #'   least one level of each of these variables
 #' @param verbose bool, whether to print progress messages
+#' @param max_full bool, whether to force as many batches as possible to have *exactly* \code{max_n_per_batch} samples
+#' @param max_inner_loop_iter integer, max number of failed attempts to fit all samples 
+#'   in batches before increasing the number of batches
+#' @param max_outer_loop_iter integer, max number of failed attempts to find optimally 
+#'   balanced batches before relaxing the stringency of the balance checks
 #'
 #' @return data table of batch assignments or NULL if batching failed 
 #'
 #' @details TODO
-make_random_batches_not_strict = function(curr_batch_pid, max_n_per_batch, balance_strictness,
+make_random_batches_not_strict = function(curr_batch_pid, max_n_per_batch, balance_strictness, b, 
+                                          max_full, max_inner_loop_iter, max_outer_loop_iter, 
                                           balance_vars = c('codedsiteid','randomgroupcode','sex_psca'),
                                           verbose=T){
+  
+  # data.table variables 
+  N = pid = batch = NULL
   
   n_samples_per_pid = curr_batch_pid[,N]
   names(n_samples_per_pid) = curr_batch_pid[,pid]
@@ -910,7 +973,7 @@ make_random_batches_not_strict = function(curr_batch_pid, max_n_per_batch, balan
       curr_batch_pid[,batch := pid_to_batches[pid]]
       
       # check if batches are balanced 
-      check_batches = check_batch_balance(curr_batch_pid, balance_strictness, max_full, balance_vars)
+      check_batches = check_batch_balance(curr_batch_pid, balance_strictness, max_full, balance_vars, verbose)
       balanced_batches = check_batches$success
       #batch_assignments = check_batches$batch_assignments
       batch_assignments = curr_batch_pid

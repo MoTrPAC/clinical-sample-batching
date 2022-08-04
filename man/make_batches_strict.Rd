@@ -9,6 +9,9 @@ make_batches_strict(
   max_n_per_batch,
   balance_strictness,
   max_full,
+  max_inner_loop_iter,
+  max_outer_loop_iter,
+  strict_size,
   balance_vars = c("codedsiteid", "randomgroupcode", "sex_psca"),
   verbose = T
 )
@@ -22,6 +25,15 @@ make_batches_strict(
 with 10 being the strictest and 1 being the most lenient}
 
 \item{max_full}{bool, whether to force as many batches as possible to have \emph{exactly} \code{max_n_per_batch} samples}
+
+\item{max_inner_loop_iter}{integer, max number of failed attempts to fit all samples
+in batches before increasing the number of batches}
+
+\item{max_outer_loop_iter}{integer, max number of failed attempts to find optimally
+balanced batches before relaxing the stringency of the balance checks}
+
+\item{strict_size}{bool, force \emph{all} batches to be as close to \code{max_n_per_batch} as possible.
+Most applicable for small batches (e.g. < 20).}
 
 \item{balance_vars}{character vector, force batches to include samples from at
 least one level of each of these variables}

@@ -20,6 +20,3 @@ list of optimal batch sizes
 Internal function. Given inputs, determine how many samples should be in each batch,
 stipulating that all samples from the same patient stay in the same batch.
 }
-\examples{
-TODO
-}

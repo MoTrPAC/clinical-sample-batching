@@ -73,6 +73,6 @@ TODO
 TODO
 }
 \examples{
-TODO
+print("TODO")
 
 }
