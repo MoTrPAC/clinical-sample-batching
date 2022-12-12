@@ -1,3 +1,7 @@
 test_commands.sh
 *.DS_Store
 .Rproj.user
+^\.Rhistory$
+^\.RData$
+^.*\.Rproj$
+^\.Rproj\.user$

@@ -1,4 +1,4 @@
-Package: SampleBatcher
+Package: SampleBatchR
 Type: Package
 Title: Create well-balanced batches of experimental samples
 Description: Make well-balanced batches of MoTrPAC human samples in terms of clinical site, 
@@ -9,10 +9,8 @@ Roxygen: list(markdown = TRUE)
 Encoding: UTF-8
 Imports:
     data.table,
-    readxl,
-    testit,
-    ggplot2,
     gtsummary,
-    pheatmap
+    pheatmap,
+    openxlsx
 RoxygenNote: 7.2.1
 License: MIT + file LICENSE

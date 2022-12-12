@@ -32,19 +32,13 @@
 #' @param separate_batch_files bool, whether to write separate BLINDED output files per batch
 #'
 #' @export
-#' 
-#' @import data.table
-#' @import readxl
-#' @import testit
-#' @import ggplot2
-#' @import gtsummary
-#' @import pheatmap
-#' @importFrom grDevices dev.off heat.colors pdf
-#' @importFrom stats runif
-#' @importFrom utils write.table
 #'
 #' @examples
-#' print("TODO")
+#' input = paste0("https://raw.githubusercontent.com/BennyStrobes/Watershed/",
+#'      "master/example_data/watershed_example_data.txt")
+#'      
+#' xlsxFile <- system.file("extdata", "readTest.xlsx", package = "openxlsx")
+#' df1 <- read.xlsx(xlsxFile = xlsxFile, sheet = 1, skipEmptyRows = FALSE)
 #' 
 #' @details 
 #' TODO
@@ -63,35 +57,6 @@ randomize = function(shipment_manifest_excel,
                      tissue_subset = NULL,
                      block_randomization = FALSE,
                      separate_batch_files = FALSE){
-  
-  # data.table variables 
-  # define to avoid notes during check 
-  older_than_40 = 
-    calculatedage = 
-    viallabel = 
-    `2d barcode` = 
-    sampletypecode = 
-    `sample type` = 
-    box = 
-    pid = 
-    protocol = 
-    codedsiteid = 
-    barcode = 
-    randomgroupcode = 
-    sex_psca = 
-    position = 
-    assay = 
-    batching_group = 
-    N = 
-    subj = 
-    ptmp = 
-    ptmp_rand = 
-    injection_order = 
-    new_batch = 
-    shipping_position = 
-    shipping_row = 
-    shipping_column = 
-    shipping_box = NULL
   
   shipments = shipment_manifest_excel
   apis = api_metadata_csv
@@ -157,7 +122,7 @@ randomize = function(shipment_manifest_excel,
   ship[,`2d barcode` := as.character(`2d barcode`)]
   # PBMCs don't have barcodes?
   all_meta = merge(api, ship, by='viallabel')
-  assert(nrow(all_meta) == nrow(ship))
+  stopifnot(nrow(all_meta) == nrow(ship))
   all_meta[all_meta=='.'] = NA
   
   if(nrow(all_meta)!=nrow(api)){
@@ -326,7 +291,7 @@ randomize = function(shipment_manifest_excel,
     nb = length(unique(b2[,batch]))
     b2[, batch := factor(paste0("Batch ", batch), levels = c(paste0("Batch ", 1:nb)))]
     b2[,subj := 1]
-    b2_tibble = as_tibble(b2[,.(calculatedage, sex_psca, codedsiteid, randomgroupcode, batch, N, subj)])
+    b2_tibble = gtsummary::as_tibble(b2[,.(calculatedage, sex_psca, codedsiteid, randomgroupcode, batch, N, subj)])
     tb = gtsummary::tbl_summary(b2_tibble, 
                                 by = 'batch',
                                 type = list(N ~ "continuous",
@@ -345,7 +310,7 @@ randomize = function(shipment_manifest_excel,
                                                  all_categorical() ~ "{n}",
                                                  N ~ "{sum}",
                                                  subj ~ "{sum}"),
-                                digits = all_continuous() ~ 0)
+                                digits = gtsummary::all_continuous() ~ 0)
     tb_df = as.data.frame(gtsummary::as_tibble(tb))
     colnames(tb_df) = c('characteristic', paste0('Batch', 1:nb))
     # can't figure out how to color this or save it to a file...
@@ -397,7 +362,7 @@ randomize = function(shipment_manifest_excel,
     # current and new positions 
     curr_batch[,pid := as.character(pid)]
     all_info = merge(curr_batch, batches[,.(pid, batch)], by='pid')
-    assert(nrow(all_info) == nrow(curr_batch))
+    stopifnot(nrow(all_info) == nrow(curr_batch))
     
     if(block_randomization){
       all_info[,ptmp := NA_real_]
@@ -458,22 +423,17 @@ randomize = function(shipment_manifest_excel,
 
 #' Read in shipment manifests
 #'
-#' Internal function used to read in shipment Excel file with specified column types
+#' Internal function used to read in shipment Excel file and coerce "Box" column to character
 #'
-#' @param path character, path to shipment manifest Excel file, e.g. 'Stanford_ADU830-10060_120720.xlsx'
+#' @param path character, path or URL to shipment manifest Excel file, e.g. 'Stanford_ADU830-10060_120720.xlsx'
 #'
 #' @return data table
-#' 
-#' @import data.table
-#' @import readxl
 read_shipment = function(path){
-  # read first line
-  trunc = read_excel(path, n_max=2)
-  which(colnames(trunc)=='Box')
-  types = rep("guess", ncol(trunc))
-  types[which(colnames(trunc)=='Box')] = 'text'
-  # make sure "Box" is read in as character
-  full = data.table(read_excel(path, col_types = types))
+  full = data.table(read.xlsx(path, sheet = 1, sep.names = " ", check.names = FALSE))
+  if("box" %in% tolower(colnames(full))){
+    whichcol = colnames(full)[which(tolower(colnames(full))=="box")]
+    full[,(whichcol):= lapply(.SD, as.character), .SDcols = whichcol]
+  }
   return(full)
 }
 
@@ -969,7 +929,7 @@ make_random_batches_not_strict = function(curr_batch_pid, max_n_per_batch, balan
         names(pid_to_batch) = pids
         pid_to_batches = c(pid_to_batches, pid_to_batch)
       }
-      assert(length(pid_to_batches) == nrow(curr_batch_pid))
+      stopifnot(length(pid_to_batches) == nrow(curr_batch_pid))
       curr_batch_pid[,batch := pid_to_batches[pid]]
       
       # check if batches are balanced 

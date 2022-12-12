@@ -7,11 +7,11 @@
 read_shipment(path)
 }
 \arguments{
-\item{path}{character, path to shipment manifest Excel file, e.g. 'Stanford_ADU830-10060_120720.xlsx'}
+\item{path}{character, path or URL to shipment manifest Excel file, e.g. 'Stanford_ADU830-10060_120720.xlsx'}
 }
 \value{
 data table
 }
 \description{
-Internal function used to read in shipment Excel file with specified column types
+Internal function used to read in shipment Excel file and coerce "Box" column to character
 }

@@ -73,6 +73,10 @@ TODO
 TODO
 }
 \examples{
-print("TODO")
+input = paste0("https://raw.githubusercontent.com/BennyStrobes/Watershed/",
+     "master/example_data/watershed_example_data.txt")
+     
+xlsxFile <- system.file("extdata", "readTest.xlsx", package = "openxlsx")
+df1 <- read.xlsx(xlsxFile = xlsxFile, sheet = 1, skipEmptyRows = FALSE)
 
 }
