@@ -5,3 +5,5 @@ test_commands.sh
 ^\.RData$
 ^.*\.Rproj$
 ^\.Rproj\.user$
+*.RData
+tests.R

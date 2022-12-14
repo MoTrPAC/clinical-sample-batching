@@ -1,75 +1,213 @@
 #' Randomize samples into balanced batches
 #' 
-#' TODO
+#' Given different batching considerations for all MoTrPAC Chemical Analysis
+#' Sites (CAS), this function generates batches of a given size that are 
+#' balanced in terms of the specified phenotypic variables. Outputs are written
+#' to a local directory. 
 #'
-#' @param shipment_manifest_excel character vector, path(s) to shipment manifest Excel files, 
-#'   e.g. \code{c('Stanford_ADU830-10060_120720.xlsx', 'Stanford_PED830-10062_120720.xlsx')}
-#' @param api_metadata_csv character vector, path(s) to sample metadata from web API, 
-#'   e.g. \code{'ADU830-10060.csv', 'PED830-10062.csv'}
+#' @param shipment_manifest character vector, path(s) or URL to shipment manifests, 
+#'   e.g. \code{c('Stanford_ADU830-10060_120720.xlsx', 'Stanford_PED830-10062_120720.xlsx')}.
+#'   Can be Excel files (.xlsx), tab-delimited text (.tsv), or comma-separated text (.csv).  
+#'   Must include a "viallabel" column (case insensitive) to map to \code{api_metadata_csv}. 
+#'   See details for other expected columns. 
+#' @param api_metadata character vector, path(s) or URL to sample metadata from web API, 
+#'   e.g. \code{'ADU830-10060.csv', 'PED830-10062.csv'}.
+#'   Can be Excel files (.xlsx), tab-delimited text (.tsv), or comma-separated text (.csv).  
+#'   Must include a "viallabel" column (case insensitive) to map to \code{shipment_manifest_excel}. 
+#'   See details for other expected columns. 
 #' @param max_n_per_batch integer, max number of samples per batch
 #' @param strict_size bool, force *all* batches to be as close to \code{max_n_per_batch} as possible. 
-#'   Most applicable for small batches (e.g. < 20).
-#' @param max_full_batches bool, whether to force as many batches as possible to have *exactly* \code{max_n_per_batch} samples
+#'   Most applicable for small batches (e.g. < 20). Default: FALSE
+#' @param max_full_batches bool, whether to force as many batches as possible to have *exactly* \code{max_n_per_batch} samples.
+#'   Default: FALSE 
 #' @param vars_to_balance character vector, force batches to include samples from at 
-#'   least one level of each of these variables. Must be defined in \code{api_metadata_csv}. 
-#'   Defaults to \code{c('codedsiteid','randomgroupcode','sex_psca','older_than_40')}. 
-#' @param outdir character, path to output directory
-#' @param verbose bool, whether to print progress messages
+#'   least one level of each of these variables. Must be defined in the column names of 
+#'   \code{api_metadata_csv} or \code{shipment_manifest_excel} (case insensitive). 
+#'   Default: \code{c('codedsiteid','randomgroupcode','sex_psca','older_than_median')} 
+#' @param outdir character, path to output directory. Current working directory by default. 
+#' @param verbose bool, whether to print progress messages. Default: TRUE. 
 #' @param max_inner_loop_iter integer, max number of failed attempts to fit all samples 
-#'   in batches before increasing the number of batches
+#'   in batches before increasing the number of batches. Decreasing this number 
+#'   may generate batches more quickly, but the number of samples per batch may not be optimal.
 #' @param max_outer_loop_iter integer, max number of failed attempts to find optimally 
-#'   balanced batches before relaxing the stringency of the balance checks
-#' @param overwrite bool, whether to overwrite existing batching results
+#'   balanced batches before relaxing the stringency of the balance checks.
+#'   Decreasing this number may generate batches more quickly, but batches may not
+#'   be optimally balanced. 
+#' @param overwrite bool, whether to overwrite existing batching results.
+#'   Defaults to current working directory. 
 #' @param balance_strictness integer, initial strictness of balance checks, 
 #'   with 10 being the strictest and 1 being the most lenient. Defaults to 1 if \code{strict_size = TRUE}
-#'   and 9 otherwise. 
+#'   and 9 otherwise. Decreasing this number may generate batches more quickly, but batches may not
+#'   be optimally balanced. 
 #' @param tissue_subset character, only specified to run batching for a single tissue. 
 #'   Must be a value in the 'Sample Type' column of one \code{shipment_manifest_excel} 
 #'   OR a value in the 'SampleTypeCode' column of one \code{api_metadata_csv}."
 #' @param block_randomization bool, whether to use block randomization. 
 #'   Samples within a batch are ordered by individual; 
 #'   samples within an individual are randomized. This adds an 'injection_order' column.
-#' @param separate_batch_files bool, whether to write separate BLINDED output files per batch
+#'   Default: FALSE
+#' @param separate_batch_files bool, whether to write separate BLINDED output files per batch.
+#'   Default: FALSE 
 #'
 #' @export
 #'
 #' @examples
-#' input = paste0("https://raw.githubusercontent.com/BennyStrobes/Watershed/",
-#'      "master/example_data/watershed_example_data.txt")
-#'      
-#' xlsxFile <- system.file("extdata", "readTest.xlsx", package = "openxlsx")
-#' df1 <- read.xlsx(xlsxFile = xlsxFile, sheet = 1, skipEmptyRows = FALSE)
+#' # Get paths to shipment and metadata files.
+#' # Here we use examples provided in this R package. 
+#' # These are examples of real MoTrPAC clinical sample batching files, where 
+#' # PIDs, vial labels, and barcodes were changed to random numbers. 
+#' # Note that both adult and pediatric samples are included in these examples,
+#' # which means pediatric and adult samples are randomized together. 
+#' shipment = system.file("extdata", "shipment-manifest.xlsx", package = "SampleBatchR")
+#' metadata = system.file("extdata", "biospecimen-metadata.csv", package = "SampleBatchR")
+#' 
+#' # For each tissue type present in the input files,
+#' # generate batches with max 96 samples per batch.
+#' # Save outputs to Desktop.
+#' \dontrun{
+#' batch_samples(
+#'  shipment, 
+#'  metadata, 
+#'  max_n_per_batch = 96,
+#'  outdir = "~/Desktop/batches/all" 
+#' )
+#' }
+#' 
+#' # Generate batches of max 96 samples for muscle samples only (code 6).
+#' # Save outputs to Desktop.
+#' \dontrun{
+#' batch_samples(
+#'  shipment, 
+#'  metadata, 
+#'  max_n_per_batch = 96,
+#'  outdir = "~/Desktop/batches/muscle",
+#'  tissue_subset = "6"
+#' )
+#' }
+#' 
+#' # Generate small batches of max 15 samples.
+#' # For small batch sizes, `strict_size` should be set to TRUE, 
+#' # which forces as many batches as possible to have exactly N samples. 
+#' \dontrun{
+#' batch_samples(
+#'  shipment, 
+#'  metadata, 
+#'  max_n_per_batch = 15,
+#'  outdir = "~/Desktop/batches/small",
+#'  strict_size = TRUE, 
+#'  tissue_subset = "6"
+#' )
+#' }
+#' 
+#' # To force as many batches as possible to have exactly N samples
+#' # for larger batch sizes, e.g., >= 30, set `max_full_batches` to TRUE
+#' \dontrun{
+#' batch_samples(
+#'  shipment, 
+#'  metadata, 
+#'  max_n_per_batch = 88,
+#'  outdir = "~/Desktop/batches/max_full",
+#'  max_full_batches = TRUE, 
+#'  tissue_subset = "6"
+#' )
+#' }
+#' 
+#' # To add an "injection_order" column based on block randomization,
+#' # set `block_randomization` to TRUE. For block randomization, samples within 
+#' # a batch are ordered by individual; samples within an individual are randomized. 
+#' # Set `overwrite` to TRUE to force overwrite of existing results. 
+#' \dontrun{
+#' batch_samples(
+#'  shipment, 
+#'  metadata, 
+#'  max_n_per_batch = 88,
+#'  outdir = "~/Desktop/batches/block_rand",
+#'  block_randomization = TRUE, 
+#'  tissue_subset = "6",
+#'  overwrite = TRUE
+#' )
+#' }
 #' 
 #' @details 
-#' TODO
-randomize = function(shipment_manifest_excel,
-                     api_metadata_csv,
-                     max_n_per_batch,
-                     strict_size = FALSE,
-                     max_full_batches = FALSE,
-                     vars_to_balance = c('codedsiteid','randomgroupcode','sex_psca','older_than_40'),
-                     outdir = ".",
-                     verbose = TRUE, 
-                     max_inner_loop_iter = 1e6,
-                     max_outer_loop_iter = NULL,
-                     overwrite = FALSE,
-                     balance_strictness = NULL,
-                     tissue_subset = NULL,
-                     block_randomization = FALSE,
-                     separate_batch_files = FALSE){
+#' This function is currently written for compatibility with MoTrPAC clinical sample
+#' shipment manifests and biospecimen metadata files. It can be further generalized if
+#' there is demand to use this function for other projects. 
+#' 
+#' **Inputs:**  
+#' 
+#' Expected column names in the input (case insensitive):  
+#' * Required: \code{viallabel} in both \code{shipment_manifest} and \code{api_metadata}. Sample-level identifier. Used to merge these files. 
+#' * Required: \code{barcode} in either \code{shipment_manifest} or \code{api_metadata}. Another sample-level identifier. Can be NA. 
+#' * Required: \code{pid} in either \code{shipment_manifest} or \code{api_metadata}. Participant-level identifier. 
+#' If there is only one sample per participant, this column can be a copy of \code{viallabel}. 
+#' * Required: Each variable listed in \code{vars_to_balance} must be a column name in either \code{shipment_manifest} or \code{api_metadata}.
+#' * Required: \code{box} in either \code{shipment_manifest} or \code{api_metadata}. Box identifier to indicate which 
+#' box/plate the sample was shipped in. 
+#' * Required: \code{position} in either \code{shipment_manifest} or \code{api_metadata}. Provides the position
+#' of the sample in the box/plate in which it was shipped. 
+#' * Required if \code{tissue_subet} is defined: \code{sampletypecode} in \code{api_metadata} or \code{sample type} in \code{shipment_manifest}.  
+#' * Optional: \code{assay} in either \code{shipment_manifest} or \code{api_metadata}. Define this column if subsets of samples are destined for different assays.
+#' * Required to generate a heatmap of batch balance: \code{'calculatedage','sex_psca','codedsiteid','randomgroupcode'}  
+#' 
+#' **Outputs:**  
+#' 
+#' This function writes outputs to a local directory, specified with the \code{outdir} argument.
+#' 
+#' *Files*  
+#' 
+#' By default, two files are written for each assay & tissue combination:
+#' * Blinded batch assignments in the format \code{files/[SAMPLE_TYPE]-samples_BLINDED-batch-assignments.csv}  
+#' * Unblinded batching metadata in the format \code{files/[SAMPLE_TYPE]-samples_UNBLINDED-batch-characteristics.csv}  
+#' 
+#' Set \code{separate_batch_files} to TRUE to output separate blinded batch assignment files per batch, 
+#' e.g. \code{files/[SAMPLE_TYPE]-samples_BLINDED-batch_3-assignments.csv}.  
+#' 
+#' *Plots*  
+#' 
+#' One heatmap is saved for each assay & tissue combination. This plot includes the number of 
+#' individuals and samples per batch as well as the balance across each level of each \code{vars_to_balance}. 
+#' These plots should be visually examined to confirm that batches are adequately balanced, 
+#' i.e. that numbers are reasonably distributed across each ROW. Note that these plots
+#' are currently only generated if the following columns are included in the input files:
+#' 'calculatedage','sex_psca','codedsiteid','randomgroupcode'. If these columns are not
+#' included, then batch-by-level tables are printed to the console for each \code{vars_to_balance}. 
+#' 
+batch_samples = function(shipment_manifest,
+                         api_metadata,
+                         max_n_per_batch,
+                         strict_size = FALSE,
+                         max_full_batches = FALSE,
+                         vars_to_balance = c('codedsiteid','randomgroupcode','sex_psca','older_than_median'),
+                         outdir = ".",
+                         verbose = TRUE, 
+                         max_inner_loop_iter = 1e5,
+                         max_outer_loop_iter = NULL,
+                         overwrite = FALSE,
+                         balance_strictness = NULL,
+                         tissue_subset = NULL,
+                         block_randomization = FALSE,
+                         separate_batch_files = FALSE){
   
-  shipments = shipment_manifest_excel
-  apis = api_metadata_csv
+  shipments = shipment_manifest
+  apis = api_metadata
   max_full = max_full_batches
   balance_vars = vars_to_balance
   init_balance_strictness = balance_strictness
+  if(!is.null(tissue_subset)) tissue_subset = as.character(tissue_subset)
   
+  # initialize balance strictness and enforce bounds 
   if(is.null(init_balance_strictness)){
     if(strict_size){
       init_balance_strictness = 1
     }else{
       init_balance_strictness = 9
     }
+  }
+  if(init_balance_strictness > 10){
+    init_balance_strictness = 10
+  }
+  if(init_balance_strictness < 1){
+    init_balance_strictness = 1
   }
   
   if(max_full & strict_size){
@@ -86,45 +224,54 @@ randomize = function(shipment_manifest_excel,
       max_outer_loop_iter = 5000 
     }
   }
-
+  
   # check formats
-  if(!all(sapply(shipments, function(x) grepl("\\.xls", x, ignore.case=T)))){
-    stop(sprintf("Shipment manifests are not in the expected .xls or .xlsx format: %s", paste(shipments, collapse=', ')))
-  }
-  if(!all(sapply(apis, function(x) grepl("\\.csv$", x, ignore.case = T)))){
-    stop(sprintf("API metadata files are not in the expected .csv format: %s", paste(apis, collapse=', ')))
+  patterns = c("\\.xlsx$","\\.csv$","\\.tsv$")
+  for(f in c(shipments,apis)){
+    if(!any(sapply(patterns, function(p) grepl(p, f, ignore.case=T)))){
+      stop("At least one of the input files is not in one of the accepted formats: .xlsx, .csv, .tsv.")
+    }
   }
   
   #### load manifests ####
   
   ship_list = list()
   for (s in shipments){
-    ship_list[[s]] = read_shipment(s)
+    ship_list[[s]] = read_input(s)
   }
   ship = rbindlist(ship_list, fill=T)
   
   # read in API metadata 
   api_list = list()
   for (a in apis){
-    api_list[[a]] = fread(a, sep=',', header=T)
+    api_list[[a]] = read_input(a)
   }
   api = rbindlist(api_list, fill=T)
   
   # make colnames lowercase for simplicity
   colnames(ship) = tolower(colnames(ship))
   colnames(api) = tolower(colnames(api))
+  balance_vars = tolower(balance_vars)
   
-  api[,older_than_40 := calculatedage > 40]
+  # binarize age on median 
+  med = median(api[,calculatedage])
+  api[,older_than_median := calculatedage > med]
   
   # merge
   api[,viallabel := as.character(viallabel)]
   ship[,viallabel := as.character(viallabel)]
-  ship[,`2d barcode` := as.character(`2d barcode`)]
+  #ship[,`2d barcode` := as.character(`2d barcode`)]
   # PBMCs don't have barcodes?
   all_meta = merge(api, ship, by='viallabel')
   stopifnot(nrow(all_meta) == nrow(ship))
   all_meta[all_meta=='.'] = NA
   
+  if(nrow(all_meta)!=nrow(ship)){
+    warning(sprintf("The number of samples in the merged metadata (%s) is not the same as the number of samples in the shipment manifest '%s' (%s). Check for a merging error.\n",
+                    nrow(all_meta),
+                    paste0(basename(shipments), collapse=', '),
+                    nrow(ship)))
+  }
   if(nrow(all_meta)!=nrow(api)){
     warning(sprintf("The number of samples in the merged metadata (%s) is not the same as the number of samples in the biospecimen metadata '%s' (%s). Check for a merging error.\n",
                     nrow(all_meta),
@@ -134,28 +281,66 @@ randomize = function(shipment_manifest_excel,
   
   # check if we need to subset by a tissue
   if(!is.null(tissue_subset)){
+    
+    found_match = FALSE
     # try to find a matching value in either `sample type` or `sampletypecode`
-    if(tissue_subset %in% all_meta[,sampletypecode]){
-      all_meta = all_meta[sampletypecode == tissue_subset]
-    }else if(tissue_subset %in% all_meta[,`sample type`]){
-      all_meta = all_meta[`sample type` == tissue_subset]
-    }else if(tolower(tissue_subset) %in% tolower(all_meta[,sampletypecode])){
-      all_meta = all_meta[tolower(sampletypecode) == tolower(tissue_subset)]
-    }else if(tolower(tissue_subset) %in% tolower(all_meta[,`sample type`])){
-      all_meta = all_meta[tolower(`sample type`) == tolower(tissue_subset)]
-    }else if(is.numeric(all_meta[,`sample type`])){
-      if(as.numeric(tissue_subset) %in% all_meta[,`sample type`]){
-        all_meta = all_meta[`sample type` == as.numeric(tissue_subset)]
+    if("sample type" %in% colnames(all_meta) | "sampletypecode" %in% colnames(all_meta)){
+      
+      # add dummy columns 
+      if(!"sample type" %in% colnames(all_meta)){
+        all_meta[,`sample type` := NA_character_]
+      }else if(!"sampletypecode" %in% colnames(all_meta)){
+        all_meta[,sampletypecode := NA_character_]
       }
-    }else if(is.numeric(all_meta[,sampletypecode])){
-      if(as.numeric(tissue_subset) %in% all_meta[,sampletypecode]){
-        all_meta = all_meta[sampletypecode == as.numeric(tissue_subset)]
+      # look for matches
+      if(tissue_subset %in% all_meta[,sampletypecode]){
+        all_meta = all_meta[sampletypecode == tissue_subset]
+        found_match = TRUE
+      }else if(tissue_subset %in% all_meta[,`sample type`]){
+        all_meta = all_meta[`sample type` == tissue_subset]
+        found_match = TRUE
+      }else if(tolower(tissue_subset) %in% tolower(all_meta[,sampletypecode])){
+        all_meta = all_meta[tolower(sampletypecode) == tolower(tissue_subset)]
+        found_match = TRUE
+      }else if(tolower(tissue_subset) %in% tolower(all_meta[,`sample type`])){
+        all_meta = all_meta[tolower(`sample type`) == tolower(tissue_subset)]
+        found_match = TRUE
+      }else if(is.numeric(all_meta[,`sample type`])){
+        if(as.numeric(tissue_subset) %in% all_meta[,`sample type`]){
+          all_meta = all_meta[`sample type` == as.numeric(tissue_subset)]
+          found_match = TRUE
+        }
+      }else if(is.numeric(all_meta[,sampletypecode])){
+        if(as.numeric(tissue_subset) %in% all_meta[,sampletypecode]){
+          all_meta = all_meta[sampletypecode == as.numeric(tissue_subset)]
+          found_match = TRUE
+        }
       }
     }else{
-      stop(sprintf("Unable to match tissue_subset '%s' to a value in either api$SampleTypeCode or ship$`Sample Type`. Available options to subset by tissue: %s",
+      stop("Neither 'sample type' nor 'sampletypecode' were found in column names of the input, but 'tissue_subset' is specified.")
+    }
+    
+    if(!found_match){
+      stop(sprintf("Unable to match tissue_subset '%s' to a value in either 'api_metadata$SampleTypeCode' or 'shipment_manifest$`Sample Type`'. Available options to subset by tissue: %s",
                    tissue_subset, 
                    paste0(c(unique(all_meta[,sampletypecode]), unique(all_meta[,`sample type`])), collapse=', ')))
     }
+  }
+  
+  # make sure randomization variables exist
+  missing = c()
+  for(b in tolower(balance_vars)){
+    if(!b %in% colnames(all_meta)){
+      missing = c(missing, b)
+    }
+  }
+  if(length(missing) > 0){
+    warning(sprintf("The following variables were specified in 'vars_to_balance' but were not found in the input files:\n %s",
+                    paste0(missing, collapse=", ")))
+    balance_vars = balance_vars[!balance_vars %in% missing]
+  }
+  if(length(balance_vars) == 0){
+    warning("No variables will be checked for balance across batches. Batching samples anyway.")
   }
   
   # subset to existing samples
@@ -164,34 +349,41 @@ randomize = function(shipment_manifest_excel,
   #### setup ##### 
   
   # make outdirs
-  system(sprintf("mkdir -p %s/plots", outdir))
-  system(sprintf("mkdir -p %s/files", outdir))
+  if(!dir.exists(sprintf("%s/plots", outdir))){
+    dir.create(sprintf("%s/plots", outdir), recursive = TRUE)
+  }
+  if(!dir.exists(sprintf("%s/files", outdir))){
+    dir.create(sprintf("%s/files", outdir), recursive = TRUE)
+  }
   
   # "study" is redundant with "randomgroupcode"
   # there can be multiple bid per pid. pid id human participant id. use pid as identifier
   # visitcode = baseline versus post. ignore this because all samples from an individual will be together
   
-  if("assay" %in% colnames(all_meta)){
-    all_meta = all_meta[,.(viallabel, pid, protocol, codedsiteid, barcode, 
-                           sampletypecode, randomgroupcode, sex_psca, calculatedage, older_than_40, 
-                           box, position, assay)]
-  }else{
-    all_meta = all_meta[,.(viallabel, pid, protocol, codedsiteid, barcode, 
-                           sampletypecode, randomgroupcode, sex_psca, calculatedage, older_than_40, 
-                           box, position)]
-  }
-  
-  # columns with 0 variance
-  remove = c()
-  for(c in colnames(all_meta)){
-    if(length(unique(all_meta[,get(c)]))==1){
-      remove = c(remove, c)
+  # make column names more flexible 
+  cols = c("viallabel", "barcode", "pid", "box", "position", balance_vars)
+  for(var in c("assay","sampletypecode","codedsiteid","randomgroupcode","sex_psca","calculatedage","older_than_median")){
+    if(var %in% colnames(all_meta)){
+      cols = c(cols, var)
     }
   }
-  message(sprintf("\nThese columns have 0 variance in the merged metadata: %s",
-                  paste0(remove, collapse=', ')))
-  # all_meta[,(remove) := NULL]
+  cols = unique(cols)
+  all_meta = all_meta[,cols, with=FALSE]
   
+  # note columns with 0 variance
+  if(verbose){
+    novar = c()
+    for(c in colnames(all_meta)){
+      if(length(unique(all_meta[,get(c)]))==1){
+        novar = c(novar, c)
+      }
+    }
+    if(length(novar) > 0){
+      message(sprintf("These columns have 0 variance in the merged metadata: %s",
+                      paste0(novar, collapse=', ')))
+    }
+  }
+
   #table(all_meta[,sampletypecode], all_meta[,randomgroupcode])
   # 01 = Human Serum
   # 02 = Human EDTA Plasma
@@ -219,30 +411,32 @@ randomize = function(shipment_manifest_excel,
   # all samples of a pid will stay together 
   # randomization will be independently performed in each tissue
   if(!"assay" %in% colnames(all_meta)){
-    message("\n'assay' is not in the column names of the merged biospecimen and shipment metadata. Batching will assume that all samples from a given tissue are for a single assay.")
+    if(verbose){
+      message("'assay' is not in the column names of the merged biospecimen and shipment metadata. Batching will assume that all samples from a given tissue are for a single assay.")
+    }
     all_meta[,batching_group := sampletypecode]
   }else{
     all_meta[,batching_group := paste0(assay, '_', sampletypecode)]
   }
   if(length(unique(all_meta[,sampletypecode]))>1){
-    message(sprintf("Batching will be performed separately for each of the following 'sampletypecode': %s", paste0(unique(all_meta[,sampletypecode]), collapse=", ")))
-    message("If this is not what you want, respecify api$SampleTypeCode AND/OR ship$`Sample Type` columns in the input files.")
+    if(verbose){
+      message(sprintf("Batching will be performed separately for each of the following 'sampletypecode': %s\nIf this is not what you want, respecify 'api_metadata$SampleTypeCode' AND/OR 'shipment_manifest$`Sample Type`' columns in the input files.", paste0(unique(all_meta[,sampletypecode]), collapse=", ")))
+    }
   }
   
   #### batching ##### 
-  
+  if(verbose) message()
   for (b in unique(all_meta[,batching_group])){
     
-    if(verbose){
+    if(verbose & length(unique(all_meta[,batching_group])) > 1){
       message(sprintf("\n\n--- BATCHING '%s' SAMPLES ---\n", b))
     }
     
     # check that the outfile hasn't already been generated
-    outfile1 = sprintf("%s/files/precovid_%s-samples_UNBLINDED-batch-characteristics.csv", outdir, gsub(" ","-",b))
+    outfile1 = sprintf("%s/files/%s-samples_UNBLINDED-batch-characteristics.csv", outdir, gsub(" ","-",b))
     if(file.exists(outfile1) & !overwrite){
-      m = sprintf("File %s for '%s' samples already exists. Skipping. Set 'overwrite' to TRUE to ignore existing batching results and force rebalancing.",
+      m = sprintf("File '%s' for '%s' samples already exists. Skipping. Set 'overwrite' to TRUE to ignore existing batching results and force rebalancing.",
                   outfile1, b)
-      message(m)
       warning(m)
       next
     }
@@ -254,7 +448,7 @@ randomize = function(shipment_manifest_excel,
     names(balance_strictness) = balance_vars
     
     curr_batch = unique(all_meta[batching_group == b])
-    curr_batch_pid = unique(curr_batch[,.(codedsiteid, pid, randomgroupcode, sex_psca, calculatedage, older_than_40)])
+    curr_batch_pid = unique(curr_batch[,.(codedsiteid, pid, randomgroupcode, sex_psca, calculatedage, older_than_median)])
     
     # how many samples per person?
     curr_batch_n = data.table(table(curr_batch[,pid]))
@@ -285,76 +479,24 @@ randomize = function(shipment_manifest_excel,
       }
     }
     
-    # make nice heatmap table
-    b2 = copy(batches)
-    # order batch numerically
-    nb = length(unique(b2[,batch]))
-    b2[, batch := factor(paste0("Batch ", batch), levels = c(paste0("Batch ", 1:nb)))]
-    b2[,subj := 1]
-    b2_tibble = gtsummary::as_tibble(b2[,.(calculatedage, sex_psca, codedsiteid, randomgroupcode, batch, N, subj)])
-    tb = gtsummary::tbl_summary(b2_tibble, 
-                                by = 'batch',
-                                type = list(N ~ "continuous",
-                                            calculatedage ~ "continuous",
-                                            sex_psca ~ "categorical",
-                                            codedsiteid ~ "categorical",
-                                            randomgroupcode ~ "categorical",
-                                            subj ~ "continuous"),
-                                label = list(N ~ "N samples",
-                                             calculatedage ~ "Age",
-                                             sex_psca ~ "Sex",
-                                             codedsiteid ~ "Site code",
-                                             randomgroupcode ~ "Intervention group",
-                                             subj ~ "N subjects"),
-                                statistic = list(all_continuous() ~ "{median} ({min},{max})",
-                                                 all_categorical() ~ "{n}",
-                                                 N ~ "{sum}",
-                                                 subj ~ "{sum}"),
-                                digits = gtsummary::all_continuous() ~ 0)
-    tb_df = as.data.frame(gtsummary::as_tibble(tb))
-    colnames(tb_df) = c('characteristic', paste0('Batch', 1:nb))
-    # can't figure out how to color this or save it to a file...
-    # can we just use pheatmap for now?
-    rownames(tb_df) = tb_df$characteristic
-    tb_df$characteristic = NULL
-    
-    # reorder rows
-    sites = unique(curr_batch[,codedsiteid])
-    sites = as.character(sites[order(sites, decreasing=F)])
-    randgroup = unique(curr_batch[,randomgroupcode])
-    randgroup = randgroup[order(randgroup)]
-    tb_df = tb_df[c("N subjects", "N samples", "Age", "Sex", "1", "2", 
-                    "Site code", sites,
-                    "Intervention group", randgroup),]
-    
-    labels = tb_df
-    labels[is.na(labels)] = ''
-    values = tb_df
-    values["Age",] = as.numeric(gsub(" .*","",values["Age",]))
-    values = as.data.frame(apply(values, c(1,2), as.numeric))
-    
-    rownames(values)[rownames(values)=='Age'] = 'Age [med (min,max)]'
-    rownames(labels)[rownames(labels)=='Age'] = 'Age [med (min,max)]'
-    
-    p = pheatmap(values,
-                 color = rev(heat.colors(50)),
-                 scale = "row",
-                 cluster_rows = F,
-                 cluster_cols = F,
-                 legend = F,
-                 display_numbers = labels,
-                 na_col = 'gray',
-                 fontsize_col = 10,
-                 fontsize_row = 10,
-                 fontsize_number = 10,
-                 main = b,
-                 gaps_row = 2)
-    
-    w = 0.5 + length(unique(batches[,batch]))*0.9
-    pdf(sprintf("%s/plots/batch-characteristics_%s.pdf", outdir, b), width=w, height=8)
-    print(p)
-    dev.off()
-    
+    # visualize batch balance
+    if(all(c("calculatedage","sex_psca","codedsiteid","randomgroupcode") %in% colnames(batches))){
+      # make a plot (specific to MoTrPAC)
+      if(verbose){
+        message("Inspect the heatmap saved to 'plots/' to assess batch balance. Rerun the function if you are not satisfied.")
+      }
+      p = plot_batches(batches, curr_batch, outdir, b)
+      print(p)
+    }else{
+      if(verbose){
+        message("Inspect the tables printed to the console to assess batch balance. Rerun the function if you are not satisfied.\nNote a heatmap is not generated because some expected columns are missing. Expected columns include:\n 'calculatedage','sex_psca','codedsiteid','randomgroupcode'.")
+      }
+      # print tables for specified balance vars 
+      for(var in balance_vars){
+        print(table(batches[,batch], batches[,get(var)], dnn = c("batch", var)))
+      }
+    }
+
     # write two versions to file 
     # batch characteristics 
     write.table(batches, file=outfile1, sep=',', col.names=T, row.names=F, quote=F)
@@ -406,36 +548,44 @@ randomize = function(shipment_manifest_excel,
     }
     
     if(!separate_batch_files){
-      write.table(positions, file=sprintf("%s/files/precovid_%s-samples_BLINDED-batch-assignments.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
+      write.table(positions, file=sprintf("%s/files/%s-samples_BLINDED-batch-assignments.csv", outdir, gsub(" ","-",b)), sep=',', col.names=T, row.names=F, quote=F)
     }else{
       for(batch in unique(positions[,new_batch])){
         sub = positions[new_batch == batch]
-        write.table(sub, file=sprintf("%s/files/precovid_%s-samples_BLINDED-%s-assignments.csv", outdir, gsub(" ","-",b), batch), sep=',', col.names=T, row.names=F, quote=F)
+        write.table(sub, file=sprintf("%s/files/%s-samples_BLINDED-%s-assignments.csv", outdir, gsub(" ","-",b), batch), sep=',', col.names=T, row.names=F, quote=F)
       }
     }
   }
-  message("\nDone!")
-  message(sprintf("\nPlease manually check the plots in %s/plots to ensure that batches are satisfactorily balanced, i.e. numbers are reasonably distributed across each ROW/variable level. Rerun the script if you are not satisfied with the balance.\n", gsub("/$","",outdir)))
-  
-  return()  
+  message("Done!")
+  message(sprintf("\nPlease manually check the plots in '%s/plots' to ensure that batches are satisfactorily balanced, i.e. numbers are reasonably distributed across each ROW/variable level. Rerun the function with 'overwrite=TRUE' if you are not satisfied with the balance.", gsub("/$","",outdir)))
 }
 
 
-#' Read in shipment manifests
+#' Read in input files 
 #'
-#' Internal function used to read in shipment Excel file and coerce "Box" column to character
+#' Internal function used to read in .xlsx, .tsv, or .csv files. "Box"/"box" columns are coerced to character. 
 #'
-#' @param path character, path or URL to shipment manifest Excel file, e.g. 'Stanford_ADU830-10060_120720.xlsx'
+#' @param path character, path or URL to file, e.g. 'Stanford_ADU830-10060_120720.xlsx'
 #'
 #' @return data table
-read_shipment = function(path){
-  full = data.table(read.xlsx(path, sheet = 1, sep.names = " ", check.names = FALSE))
-  if("box" %in% tolower(colnames(full))){
-    whichcol = colnames(full)[which(tolower(colnames(full))=="box")]
-    full[,(whichcol):= lapply(.SD, as.character), .SDcols = whichcol]
+read_input = function(path){
+  
+  if(grepl("\\.xlsx$", path, ignore.case = TRUE)){
+    data = data.table(read.xlsx(path, sheet = 1, sep.names = " ", check.names = FALSE))
+  }else if(grepl("\\.tsv$", path, ignore.case = TRUE)){
+    data = fread(file=path, sep="\t", header=TRUE)
+  }else if(grepl("\\.csv$", path, ignore.case = TRUE)){
+    data = fread(file=path, sep=",", header=TRUE)
+  }else{
+    stop(sprintf("'%s' is not a .xlsx, .tsv, or .csv file.", path))
   }
-  return(full)
+  if("box" %in% tolower(colnames(data))){
+    whichcol = colnames(data)[which(tolower(colnames(data))=="box")]
+    data[,(whichcol):= lapply(.SD, as.character), .SDcols = whichcol]
+  }
+  return(data)
 }
+
 
 #' Check batch balance
 #' 
@@ -573,7 +723,7 @@ id_optimal_batch_sizes = function(curr_batch_pid, max_n_per_batch, max_full){
 #' ID feasible batch sizes
 #'
 #' Internal function. 
-#' If [id_optimal_batch_sizes] fails, identify the minimum possible number of 
+#' If [id_optimal_batch_sizes()] fails, identify the minimum possible number of 
 #' batches and their ideal sizes. Only used if \code{strict_size} is TRUE. 
 #'
 #' @param curr_batch_pid data table of input samples
@@ -673,10 +823,15 @@ id_feasible_batch_sizes = function(curr_batch_pid, max_n_per_batch, max_full){
 #' @return data table of batch assignments or NULL if batching failed 
 #' 
 #' @details TODO
-make_batches_strict = function(curr_batch_pid, max_n_per_batch, balance_strictness, max_full,
-                               max_inner_loop_iter, max_outer_loop_iter, strict_size, 
+make_batches_strict = function(curr_batch_pid, 
+                               max_n_per_batch, 
+                               balance_strictness, 
+                               max_full,
+                               max_inner_loop_iter, 
+                               max_outer_loop_iter, 
+                               strict_size, 
                                balance_vars = c('codedsiteid','randomgroupcode','sex_psca'),
-                               verbose=T){
+                               verbose=TRUE){
   
   # for data.table variables 
   N = pid = batch = total = NULL
@@ -782,34 +937,33 @@ make_batches_strict = function(curr_batch_pid, max_n_per_batch, balance_strictne
                         paste0(batch_sizes, collapse=', ')))
         feasible_batches = T
       }
-      if(outer_loop > max_outer_loop_iter){
-        if(verbose){
-          writeLines(paste0(batch_sizes, collapse=', '))
-        }
+    }
+    
+    # check if outer_loop is over the max
+    if(outer_loop > max_outer_loop_iter){
+      if(strict_size){
+        message(sprintf("Target batch sizes: %s", paste0(batch_sizes, collapse=', ')))
+        stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nHope for better luck and rerun the script - OR - try removing the least important variable from this list using the 'vars_to_balance' argument and rerun the function.",
+                     sum(curr_batch_pid[,N]),
+                     max_n_per_batch,
+                     outer_loop-1,
+                     paste0(balance_vars, collapse=', ')))
+      }
+      if(max_full){
+        too_strict = names(which.max(failed_balancing))
+        message(sprintf("With %s total samples and %s samples per batch whenever possible, balanced batches were not found in %s candidate batches. The current balance strictness parameters are as follows:\n",
+                        sum(curr_batch_pid[,N]),
+                        max_n_per_batch,
+                        outer_loop-1))
+        print(balance_strictness)
+        message(sprintf("Decreasing balance strictness for %s by 1.", too_strict))
         
-        if(strict_size){
-          stop(sprintf("With %s total samples, maximum %s samples per batch, and target batch sizes printed above, well-balanced batches were not found in %s candidate batches. You are currently requiring all batches to have samples from more than one group for all of the following variables:\n    %s\nHope for better luck and rerun the script - OR - try removing the least important variable from this list using the --vars-to-balance flag and rerun the script.",
-                       sum(curr_batch_pid[,N]),
-                       max_n_per_batch,
-                       outer_loop-1,
-                       paste0(balance_vars, collapse=', ')))
-        }
-        if(max_full){
-          too_strict = names(which.max(failed_balancing))
-          message(sprintf("With %s total samples and %s samples per batch whenever possible, balanced batches were not found in %s candidate batches. The current balance strictness parameters are as follows:\n",
-                          sum(curr_batch_pid[,N]),
-                          max_n_per_batch,
-                          outer_loop-1))
-          print(balance_strictness)
-          message(sprintf("Decreasing balance strictness for %s by 1.", too_strict))
-          
-          balance_strictness[[too_strict]] = balance_strictness[[too_strict]] - 1
-          outer_loop = 1
-          inner_loop = 1
-          # reset table
-          for(v in balance_vars){
-            failed_balancing[[v]] = 0
-          }
+        balance_strictness[[too_strict]] = balance_strictness[[too_strict]] - 1
+        outer_loop = 1
+        inner_loop = 1
+        # reset table
+        for(v in balance_vars){
+          failed_balancing[[v]] = 0
         }
       }
     }
@@ -904,7 +1058,7 @@ make_random_batches_not_strict = function(curr_batch_pid, max_n_per_batch, balan
     if(length(n_samples_per_pid_reordered)==0){
       # only print once in a while if inner_loop is small 
       if(inner_loop < 100){
-        pmessage = outer_loop %% 100 == 0
+        pmessage = outer_loop %% 500 == 0
       }else{
         pmessage = T
       }
@@ -913,7 +1067,7 @@ make_random_batches_not_strict = function(curr_batch_pid, max_n_per_batch, balan
       }
       
       if(inner_loop > 5000 & !already_reduced_stringency){
-        message(sprintf("It took at least 1000 iterations to find a *single* combination of '%s' samples that fits in the ideal number of batches. Reducing stringency for batch balance checks.", b))
+        message(sprintf("It took at least 5000 iterations to find a *single* combination of '%s' samples that fits in the ideal number of batches. Reducing stringency for batch balance checks.", b))
         for(v in names(balance_strictness)){
           balance_strictness[[v]] = 1
         }
@@ -950,36 +1104,133 @@ make_random_batches_not_strict = function(curr_batch_pid, max_n_per_batch, balan
         warning("Can't find a combination of samples that fits in this many batches. Increasing the number of batches by 1.")
         n_batches = n_batches + 1
       }
-      if(outer_loop > max_outer_loop_iter){
-        if(max_n_per_batch < 20){
-          stop(sprintf("It looks like you want small batch sizes (N = %s). Please try re-running the script with strict_size = TRUE for a batching method more suitable for small batch sizes.",
-                       max_n_per_batch))
+    }
+    
+    # adjust balance strictness if necessary, and reset outer loop counter 
+    if(outer_loop > max_outer_loop_iter){
+      if(max_n_per_batch < 20){
+        stop(sprintf("It looks like you want small batch sizes (N = %s). Please try re-running the script with strict_size = TRUE for a batching method more suitable for small batch sizes.",
+                     max_n_per_batch))
+      }else{
+        too_strict = names(which.max(failed_balancing))
+        message(sprintf("With %s total samples and up to %s samples per batch, balanced batches were not found in %s candidate batches. The current balance strictness parameters are as follows:\n",
+                        sum(curr_batch_pid[,N]),
+                        max_n_per_batch,
+                        outer_loop-1))
+        print(balance_strictness)
+        if(all(balance_strictness == 10)){
+          message(sprintf("Decreasing balance strictness for %s by 1.", paste0(names(balance_strictness), collapse=', ')))
+          for(v in names(balance_strictness)){
+            balance_strictness[[v]] = max(1, balance_strictness[[v]] - 1)
+          }
         }else{
-          too_strict = names(which.max(failed_balancing))
-          message(sprintf("With %s total samples and up to %s samples per batch, balanced batches were not found in %s candidate batches. The current balance strictness parameters are as follows:\n",
-                          sum(curr_batch_pid[,N]),
-                          max_n_per_batch,
-                          outer_loop-1))
-          print(balance_strictness)
-          if(all(balance_strictness == 10)){
-            message(sprintf("Decreasing balance strictness for %s by 1.", paste0(names(balance_strictness), collapse=', ')))
-            for(v in names(balance_strictness)){
-              balance_strictness[[v]] = max(1, balance_strictness[[v]] - 1)
-            }
-          }else{
-            message(sprintf("Decreasing balance strictness for %s by 1.", too_strict))
-            balance_strictness[[too_strict]] = max(1, balance_strictness[[too_strict]] - 1)
-          }
-          
-          outer_loop = 1
-          inner_loop = 1
-          # reset table
-          for(v in balance_vars){
-            failed_balancing[[v]] = 0
-          }
+          message(sprintf("Decreasing balance strictness for %s by 1.", too_strict))
+          balance_strictness[[too_strict]] = max(1, balance_strictness[[too_strict]] - 1)
+        }
+        
+        outer_loop = 1
+        inner_loop = 1
+        # reset table
+        for(v in balance_vars){
+          failed_balancing[[v]] = 0
         }
       }
     }
+    
   }
   return(batch_assignments)
+}
+
+
+#' Plot batch characteristics
+#' 
+#' Plot a heatmap of the numbers of samples per level per balance variable across batches. 
+#' Well-balanced batches are indicated by relatively similar numbers across each ROW of the plot. 
+#' This function saves the plot locally and returns the [pheatmap::pheatmap()] object. 
+#'
+#' @param batches batching output
+#' @param curr_batch batching input
+#' @param outdir character, path to output directory
+#' @param b character, name of samples being batched
+#' 
+#' @seealso [batch_samples()]
+#'
+#' @return pheatmap object
+#' 
+#' @details 
+#' Required columns in \code{batches} include 'calculatedage','sex_psca','codedsiteid','randomgroupcode','batch','N'. 
+#' Required columns in \code{curr_batch} include 'codedsiteid','randomgroupcode'. 
+plot_batches = function(batches, curr_batch, outdir, b){
+  
+  # make nice heatmap table
+  b2 = copy(batches)
+  # order batch numerically
+  nb = length(unique(b2[,batch]))
+  b2[, batch := factor(paste0("Batch ", batch), levels = c(paste0("Batch ", 1:nb)))]
+  b2[,subj := 1]
+  b2_tibble = gtsummary::as_tibble(b2[,.(calculatedage, sex_psca, codedsiteid, randomgroupcode, batch, N, subj)])
+  tb = gtsummary::tbl_summary(b2_tibble, 
+                              by = 'batch',
+                              type = list(N ~ "continuous",
+                                          calculatedage ~ "continuous",
+                                          sex_psca ~ "categorical",
+                                          codedsiteid ~ "categorical",
+                                          randomgroupcode ~ "categorical",
+                                          subj ~ "continuous"),
+                              label = list(N ~ "N samples",
+                                           calculatedage ~ "Age",
+                                           sex_psca ~ "Sex",
+                                           codedsiteid ~ "Site code",
+                                           randomgroupcode ~ "Intervention group",
+                                           subj ~ "N subjects"),
+                              statistic = list(all_continuous() ~ "{median} ({min},{max})",
+                                               all_categorical() ~ "{n}",
+                                               N ~ "{sum}",
+                                               subj ~ "{sum}"),
+                              digits = gtsummary::all_continuous() ~ 0)
+  tb_df = as.data.frame(gtsummary::as_tibble(tb))
+  colnames(tb_df) = c('characteristic', paste0('Batch', 1:nb))
+  # can't figure out how to color this or save it to a file...
+  # can we just use pheatmap for now?
+  rownames(tb_df) = tb_df$characteristic
+  tb_df$characteristic = NULL
+  
+  # reorder rows
+  sites = unique(curr_batch[,codedsiteid])
+  sites = as.character(sites[order(sites, decreasing=F)])
+  randgroup = unique(curr_batch[,randomgroupcode])
+  randgroup = randgroup[order(randgroup)]
+  tb_df = tb_df[c("N subjects", "N samples", "Age", "Sex", "1", "2", 
+                  "Site code", sites,
+                  "Intervention group", randgroup),]
+  
+  labels = tb_df
+  labels[is.na(labels)] = ''
+  values = tb_df
+  values["Age",] = as.numeric(gsub(" .*","",values["Age",]))
+  values = as.data.frame(apply(values, c(1,2), as.numeric))
+  
+  rownames(values)[rownames(values)=='Age'] = 'Age [med (min,max)]'
+  rownames(labels)[rownames(labels)=='Age'] = 'Age [med (min,max)]'
+  
+  p = pheatmap(values,
+               color = rev(heat.colors(50)),
+               scale = "row",
+               cluster_rows = F,
+               cluster_cols = F,
+               legend = F,
+               display_numbers = labels,
+               na_col = 'gray',
+               fontsize_col = 10,
+               fontsize_row = 10,
+               fontsize_number = 10,
+               main = b,
+               gaps_row = 2)
+  
+  w = 0.5 + length(unique(batches[,batch]))*0.9
+  pdf(sprintf("%s/plots/batch-characteristics_%s.pdf", outdir, b), width=w, height=8)
+  print(p)
+  dev.off()
+  
+  return(p)
 }
